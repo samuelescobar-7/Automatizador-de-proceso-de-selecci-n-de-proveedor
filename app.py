@@ -1,0 +1,441 @@
+import re
+from io import BytesIO
+from pathlib import Path
+from tempfile import NamedTemporaryFile
+
+import openpyxl
+import pandas as pd
+import streamlit as st
+
+
+# =========================
+# CONFIGURACIÓN
+# =========================
+COL_RESPUESTA_F = 6
+COL_RESPUESTA_G = 7
+COL_RESPUESTA_K = 11
+
+VALID_RESPUESTAS_F = {"SI", "DESARROLLO", "TERCERO", "NO"}
+VALID_RESPUESTAS_G = {"SI", "NO"}
+VALID_RESPUESTAS_K = {"COMPLETO", "PARCIAL", "INCOMPLETO"}
+
+HOJAS_EXCLUIDAS = {"1.15", "1.16", "1.17"}
+
+
+# =========================
+# FUNCIONES
+# =========================
+def normalizar(valor):
+    if valor is None:
+        return ""
+    return str(valor).strip().upper()
+
+
+def es_hoja_1x(nombre):
+    nombre = nombre.strip()
+    prefijo = re.match(r"^(\d+\.\d+)", nombre)
+    if prefijo and prefijo.group(1) in HOJAS_EXCLUIDAS:
+        return False
+    return bool(re.match(r"^1\.", nombre))
+
+
+def es_hoja_no_funcional(nombre):
+    nombre = nombre.strip()
+    prefijo = re.match(r"^(\d+\.\d+)", nombre)
+    if prefijo and prefijo.group(1) in HOJAS_EXCLUIDAS:
+        return True
+    return False
+
+
+def detectar_filas(ws):
+    filas = []
+    for r in range(9, ws.max_row + 1):
+        val = normalizar(ws.cell(r, 1).value)
+        if "*** FIN DEL DOCUMENTO ***" in val:
+            break
+        if val.isdigit():
+            filas.append(r)
+    return filas
+
+
+def leer_respuesta(ws, fila, col, validas):
+    val = ws.cell(fila, col).value
+    if val is None:
+        return "VACIO"
+    val = normalizar(val)
+    if val in validas:
+        return val
+    return "VACIO"
+
+
+def analizar_hoja(ws, pesos_f, peso_col_f, peso_col_g):
+    data = []
+    for r in detectar_filas(ws):
+        resp_f = leer_respuesta(ws, r, COL_RESPUESTA_F, VALID_RESPUESTAS_F)
+        resp_g = leer_respuesta(ws, r, COL_RESPUESTA_G, VALID_RESPUESTAS_G)
+        requerimiento = ws.cell(r, 4).value
+        peso_f = pesos_f.get(resp_f, 0.0)
+        peso_g = peso_col_g if resp_g == "SI" else 0.0
+        data.append({
+            "Hoja": ws.title,
+            "Fila": r,
+            "Requerimiento": requerimiento,
+            "Peso_F": peso_f,
+            "Peso_G": peso_g,
+            "Peso_Total": peso_f + peso_g
+        })
+    df = pd.DataFrame(data)
+    if df.empty:
+        return None, None
+    maximo_posible = peso_col_f + peso_col_g
+    if maximo_posible == 0:
+        return 0.0, df
+    cumplimiento = (df["Peso_Total"].mean() / maximo_posible) * 100
+    return round(cumplimiento, 2), df
+
+
+def analizar_hoja_k(ws, pesos_k):
+    data = []
+    for r in detectar_filas(ws):
+        resp_k = leer_respuesta(ws, r, COL_RESPUESTA_K, VALID_RESPUESTAS_K)
+        requerimiento = ws.cell(r, 4).value
+        peso_k = pesos_k.get(resp_k, 0.0)
+        data.append({
+            "Hoja": ws.title,
+            "Fila": r,
+            "Requerimiento": requerimiento,
+            "Peso_K": peso_k
+        })
+    df = pd.DataFrame(data)
+    if df.empty:
+        return None, None
+    maximo_posible = pesos_k.get("COMPLETO", 1.0)
+    if maximo_posible == 0:
+        return 0.0, df
+    calidad = (df["Peso_K"].mean() / maximo_posible) * 100
+    return round(calidad, 2), df
+
+
+def analizar_archivo(path, pesos_f, peso_col_f, peso_col_g, pesos_k):
+    wb = openpyxl.load_workbook(path, data_only=True)
+
+    hojas_func = [s for s in wb.sheetnames if es_hoja_1x(s)]
+    resultados, detalles, resultados_k, detalles_k = {}, {}, {}, {}
+    for h in hojas_func:
+        ws = wb[h]
+        cumplimiento, detalle_df = analizar_hoja(ws, pesos_f, peso_col_f, peso_col_g)
+        if cumplimiento is not None:
+            resultados[h] = cumplimiento
+            detalles[h] = detalle_df
+        calidad, detalle_k_df = analizar_hoja_k(ws, pesos_k)
+        if calidad is not None:
+            resultados_k[h] = calidad
+            detalles_k[h] = detalle_k_df
+
+    hojas_nofunc = [s for s in wb.sheetnames if es_hoja_no_funcional(s)]
+    resultados_nf, detalles_nf, resultados_k_nf, detalles_k_nf = {}, {}, {}, {}
+    for h in hojas_nofunc:
+        ws = wb[h]
+        cumplimiento, detalle_df = analizar_hoja(ws, pesos_f, peso_col_f, peso_col_g)
+        if cumplimiento is not None:
+            resultados_nf[h] = cumplimiento
+            detalles_nf[h] = detalle_df
+        calidad, detalle_k_df = analizar_hoja_k(ws, pesos_k)
+        if calidad is not None:
+            resultados_k_nf[h] = calidad
+            detalles_k_nf[h] = detalle_k_df
+
+    return (resultados, detalles, resultados_k, detalles_k,
+            resultados_nf, detalles_nf, resultados_k_nf, detalles_k_nf)
+
+
+def construir_tablas(data, data_k, peso_total_cumplimiento, peso_total_calidad):
+    df = pd.DataFrame(data)
+    df_k = pd.DataFrame(data_k)
+
+    df_final = df.pivot_table(
+        index="Hoja", columns="Proveedor", values="Cumplimiento_%", aggfunc="first"
+    ).fillna(0).reset_index()
+    total_por_proveedor = df.groupby("Proveedor")["Cumplimiento_%"].mean().round(2).to_dict()
+    df_total = pd.DataFrame([{"Hoja": "TOTAL", **total_por_proveedor}]).fillna(0)
+
+    df_final_k = df_k.pivot_table(
+        index="Hoja", columns="Proveedor", values="Calidad_%", aggfunc="first"
+    ).fillna(0).reset_index()
+    total_k_por_proveedor = df_k.groupby("Proveedor")["Calidad_%"].mean().round(2).to_dict()
+    df_total_k = pd.DataFrame([{"Hoja": "TOTAL", **total_k_por_proveedor}]).fillna(0)
+
+    proveedores = [c for c in df_final.columns if c != "Hoja"]
+    df_puntaje = df_final[["Hoja"]].copy()
+    df_final_k_idx = df_final_k.set_index("Hoja")
+    df_final_idx = df_final.set_index("Hoja")
+    for prov in proveedores:
+        cum = df_final_idx[prov] if prov in df_final_idx.columns else 0
+        cal = df_final_k_idx[prov] if prov in df_final_k_idx.columns else 0
+        df_puntaje[prov] = ((cum * peso_total_cumplimiento) + (cal * peso_total_calidad)).round(2).values
+    total_puntaje = {prov: round(df_puntaje[prov].mean(), 2) for prov in proveedores}
+    df_total_puntaje = pd.DataFrame([{"Hoja": "TOTAL", **total_puntaje}])
+
+    return df_final, df_total, df_final_k, df_total_k, df_puntaje, df_total_puntaje
+
+
+def formatear_porcentaje_df(df):
+    df_fmt = df.copy()
+    for col in df_fmt.columns:
+        if col != "Hoja":
+            df_fmt[col] = df_fmt[col].apply(lambda x: f"{x:.2f}%")
+    return df_fmt
+
+
+def df_to_excel_bytes(dfs: dict) -> bytes:
+    buf = BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+        for sheet_name, df in dfs.items():
+            df.to_excel(writer, index=False, sheet_name=sheet_name)
+    return buf.getvalue()
+
+
+def boton_descarga(label, dfs: dict, file_name: str, key: str):
+    st.download_button(
+        label,
+        df_to_excel_bytes(dfs),
+        file_name=file_name,
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        key=key
+    )
+
+
+# =========================
+# UI
+# =========================
+st.set_page_config(layout="wide")
+st.title("Analizador de Cumplimiento")
+
+if st.sidebar.button("Reiniciar análisis"):
+    st.session_state.clear()
+    st.rerun()
+
+with st.sidebar:
+    st.header("Pesos cumplimiento funcional")
+
+    peso_col_f = st.slider("Peso máximo columna F (cubrimiento)", 0.0, 1.0, 1.0)
+    peso_col_g = st.slider("Peso máximo columna G (inclusión)", 0.0, 1.0, 1.0)
+
+    st.markdown("**Pesos cubrimiento:**")
+    pesos_f = {
+        "SI": st.slider("SI (columna F)", 0.0, peso_col_f, min(1.0, peso_col_f)),
+        "DESARROLLO": st.slider("DESARROLLO (columna F)", 0.0, peso_col_f, min(0.5, peso_col_f)),
+        "TERCERO": st.slider("TERCERO (columna F)", 0.0, peso_col_f, min(0.5, peso_col_f)),
+        "NO": st.slider("NO (columna F)", 0.0, peso_col_f, 0.0),
+        "VACIO": 0.0
+    }
+
+    st.markdown("**Pesos calidad:**")
+    pesos_k = {
+        "COMPLETO": st.slider("Completo (columna K)", 0.0, 1.0, 1.0),
+        "PARCIAL": st.slider("Parcial (columna K)", 0.0, 1.0, 0.5),
+        "INCOMPLETO": st.slider("Incompleto (columna K)", 0.0, 1.0, 0.0),
+        "VACIO": 0.0
+    }
+
+    st.markdown("**Pesos totales:**")
+    peso_total_cumplimiento = st.slider("Peso total cumplimiento", 0.0, 1.0, 1.0)
+    peso_total_calidad = st.slider("Peso total calidad", 0.0, 1.0, 1.0)
+
+archivos = st.file_uploader("Sube archivos Excel", type=["xlsx"], accept_multiple_files=True)
+
+if "archivos_cargados" not in st.session_state:
+    st.session_state["archivos_cargados"] = False
+
+
+# =========================
+# PROCESAMIENTO
+# =========================
+if archivos and not st.session_state["archivos_cargados"]:
+    data, data_k = [], []
+    data_nf, data_k_nf = [], []
+    detalles_globales, detalles_globales_k = {}, {}
+    detalles_globales_nf, detalles_globales_k_nf = {}, {}
+
+    for archivo in archivos:
+        proveedor = Path(archivo.name).stem
+        with NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
+            tmp.write(archivo.getvalue())
+            path = tmp.name
+
+        (resultados, detalles, resultados_k, detalles_k,
+         resultados_nf, detalles_nf, resultados_k_nf, detalles_k_nf) = analizar_archivo(
+            path, pesos_f, peso_col_f, peso_col_g, pesos_k
+        )
+
+        for hoja, v in resultados.items():
+            data.append({"Hoja": hoja, "Proveedor": proveedor, "Cumplimiento_%": v})
+        for hoja, df_ in detalles.items():
+            df_ = df_.copy(); df_["Proveedor"] = proveedor
+            detalles_globales.setdefault(hoja, []).append(df_)
+        for hoja, v in resultados_k.items():
+            data_k.append({"Hoja": hoja, "Proveedor": proveedor, "Calidad_%": v})
+        for hoja, df_ in detalles_k.items():
+            df_ = df_.copy(); df_["Proveedor"] = proveedor
+            detalles_globales_k.setdefault(hoja, []).append(df_)
+
+        for hoja, v in resultados_nf.items():
+            data_nf.append({"Hoja": hoja, "Proveedor": proveedor, "Cumplimiento_%": v})
+        for hoja, df_ in detalles_nf.items():
+            df_ = df_.copy(); df_["Proveedor"] = proveedor
+            detalles_globales_nf.setdefault(hoja, []).append(df_)
+        for hoja, v in resultados_k_nf.items():
+            data_k_nf.append({"Hoja": hoja, "Proveedor": proveedor, "Calidad_%": v})
+        for hoja, df_ in detalles_k_nf.items():
+            df_ = df_.copy(); df_["Proveedor"] = proveedor
+            detalles_globales_k_nf.setdefault(hoja, []).append(df_)
+
+    (df_final, df_total, df_final_k, df_total_k,
+     df_puntaje, df_total_puntaje) = construir_tablas(
+        data, data_k, peso_total_cumplimiento, peso_total_calidad
+    )
+
+    (df_final_nf, df_total_nf, df_final_k_nf, df_total_k_nf,
+     df_puntaje_nf, df_total_puntaje_nf) = construir_tablas(
+        data_nf, data_k_nf, peso_total_cumplimiento, peso_total_calidad
+    )
+
+    st.session_state.update({
+        "df_final": df_final, "df_total": df_total,
+        "df_final_k": df_final_k, "df_total_k": df_total_k,
+        "df_puntaje": df_puntaje, "df_total_puntaje": df_total_puntaje,
+        "df_final_nf": df_final_nf, "df_total_nf": df_total_nf,
+        "df_final_k_nf": df_final_k_nf, "df_total_k_nf": df_total_k_nf,
+        "df_puntaje_nf": df_puntaje_nf, "df_total_puntaje_nf": df_total_puntaje_nf,
+        "detalles_globales": detalles_globales,
+        "detalles_globales_k": detalles_globales_k,
+        "detalles_globales_nf": detalles_globales_nf,
+        "detalles_globales_k_nf": detalles_globales_k_nf,
+        "archivos_cargados": True
+    })
+
+
+# =========================
+# MOSTRAR
+# =========================
+if st.session_state["archivos_cargados"]:
+
+    df_final            = st.session_state["df_final"]
+    df_total            = st.session_state["df_total"]
+    df_final_k          = st.session_state["df_final_k"]
+    df_total_k          = st.session_state["df_total_k"]
+    df_puntaje          = st.session_state["df_puntaje"]
+    df_total_puntaje    = st.session_state["df_total_puntaje"]
+    df_final_nf         = st.session_state["df_final_nf"]
+    df_total_nf         = st.session_state["df_total_nf"]
+    df_final_k_nf       = st.session_state["df_final_k_nf"]
+    df_total_k_nf       = st.session_state["df_total_k_nf"]
+    df_puntaje_nf       = st.session_state["df_puntaje_nf"]
+    df_total_puntaje_nf = st.session_state["df_total_puntaje_nf"]
+    detalles_globales      = st.session_state["detalles_globales"]
+    detalles_globales_k    = st.session_state["detalles_globales_k"]
+    detalles_globales_nf   = st.session_state["detalles_globales_nf"]
+    detalles_globales_k_nf = st.session_state["detalles_globales_k_nf"]
+
+    # ---- FUNCIONAL ----
+    st.subheader("Cumplimiento funcional")
+
+    st.markdown("#### Cumplimiento por hoja")
+    event = st.dataframe(formatear_porcentaje_df(df_final), on_select="rerun", key="df_func")
+    boton_descarga("⬇️ Descargar", {"Cumplimiento por hoja": df_final}, "f_cumplimiento_hoja.xlsx", "dl_f_cum_hoja")
+    if event.selection.rows:
+        hoja = df_final.iloc[event.selection.rows[0]]["Hoja"]
+        st.session_state["detalle_hoja"] = hoja
+        st.session_state["detalle_df"] = pd.concat(detalles_globales[hoja])
+        st.session_state["detalle_df_k"] = pd.concat(detalles_globales_k[hoja]) if hoja in detalles_globales_k else None
+        st.switch_page("pages/detalle_hoja.py")
+
+    st.markdown("#### Total de cumplimiento funcional")
+    st.dataframe(formatear_porcentaje_df(df_total), key="df_total_func")
+    boton_descarga("⬇️ Descargar", {"Total cumplimiento": df_total}, "f_total_cumplimiento.xlsx", "dl_f_total_cum")
+
+    st.markdown("#### Calidad por hoja")
+    event_k = st.dataframe(formatear_porcentaje_df(df_final_k), on_select="rerun", key="df_cal_func")
+    boton_descarga("⬇️ Descargar", {"Calidad por hoja": df_final_k}, "f_calidad_hoja.xlsx", "dl_f_cal_hoja")
+    if event_k.selection.rows:
+        hoja_k = df_final_k.iloc[event_k.selection.rows[0]]["Hoja"]
+        st.session_state["detalle_hoja"] = hoja_k
+        st.session_state["detalle_df"] = pd.concat(detalles_globales[hoja_k]) if hoja_k in detalles_globales else None
+        st.session_state["detalle_df_k"] = pd.concat(detalles_globales_k[hoja_k])
+        st.switch_page("pages/detalle_hoja.py")
+
+    st.markdown("#### Total de calidad")
+    st.dataframe(formatear_porcentaje_df(df_total_k), key="df_total_cal_func")
+    boton_descarga("⬇️ Descargar", {"Total calidad": df_total_k}, "f_total_calidad.xlsx", "dl_f_total_cal")
+
+    st.markdown("#### Puntaje funcional por hoja")
+    st.dataframe(formatear_porcentaje_df(df_puntaje), use_container_width=True, key="df_punt_func")
+    boton_descarga("⬇️ Descargar", {"Puntaje funcional": df_puntaje}, "f_puntaje_hoja.xlsx", "dl_f_punt_hoja")
+
+    st.markdown("#### Total puntaje funcional")
+    st.dataframe(formatear_porcentaje_df(df_total_puntaje), use_container_width=True, key="df_total_punt_func")
+    boton_descarga("⬇️ Descargar", {"Total puntaje funcional": df_total_puntaje}, "f_total_puntaje.xlsx", "dl_f_total_punt")
+
+    # ---- NO FUNCIONAL ----
+    st.subheader("Cumplimiento no funcional")
+
+    st.markdown("#### Cumplimiento por hoja")
+    event_nf = st.dataframe(formatear_porcentaje_df(df_final_nf), on_select="rerun", key="df_nofunc")
+    boton_descarga("⬇️ Descargar", {"Cumplimiento por hoja": df_final_nf}, "nf_cumplimiento_hoja.xlsx", "dl_nf_cum_hoja")
+    if event_nf.selection.rows:
+        hoja_nf = df_final_nf.iloc[event_nf.selection.rows[0]]["Hoja"]
+        st.session_state["detalle_hoja"] = hoja_nf
+        st.session_state["detalle_df"] = pd.concat(detalles_globales_nf[hoja_nf])
+        st.session_state["detalle_df_k"] = pd.concat(detalles_globales_k_nf[hoja_nf]) if hoja_nf in detalles_globales_k_nf else None
+        st.switch_page("pages/detalle_hoja.py")
+
+    st.markdown("#### Total de cumplimiento no funcional")
+    st.dataframe(formatear_porcentaje_df(df_total_nf), key="df_total_nofunc")
+    boton_descarga("⬇️ Descargar", {"Total cumplimiento": df_total_nf}, "nf_total_cumplimiento.xlsx", "dl_nf_total_cum")
+
+    st.markdown("#### Calidad por hoja")
+    event_k_nf = st.dataframe(formatear_porcentaje_df(df_final_k_nf), on_select="rerun", key="df_cal_nofunc")
+    boton_descarga("⬇️ Descargar", {"Calidad por hoja": df_final_k_nf}, "nf_calidad_hoja.xlsx", "dl_nf_cal_hoja")
+    if event_k_nf.selection.rows:
+        hoja_k_nf = df_final_k_nf.iloc[event_k_nf.selection.rows[0]]["Hoja"]
+        st.session_state["detalle_hoja"] = hoja_k_nf
+        st.session_state["detalle_df"] = pd.concat(detalles_globales_nf[hoja_k_nf]) if hoja_k_nf in detalles_globales_nf else None
+        st.session_state["detalle_df_k"] = pd.concat(detalles_globales_k_nf[hoja_k_nf])
+        st.switch_page("pages/detalle_hoja.py")
+
+    st.markdown("#### Total de calidad")
+    st.dataframe(formatear_porcentaje_df(df_total_k_nf), key="df_total_cal_nofunc")
+    boton_descarga("⬇️ Descargar", {"Total calidad": df_total_k_nf}, "nf_total_calidad.xlsx", "dl_nf_total_cal")
+
+    st.markdown("#### Puntaje no funcional por hoja")
+    st.dataframe(formatear_porcentaje_df(df_puntaje_nf), use_container_width=True, key="df_punt_nofunc")
+    boton_descarga("⬇️ Descargar", {"Puntaje no funcional": df_puntaje_nf}, "nf_puntaje_hoja.xlsx", "dl_nf_punt_hoja")
+
+    st.markdown("#### Total puntaje no funcional")
+    st.dataframe(formatear_porcentaje_df(df_total_puntaje_nf), use_container_width=True, key="df_total_punt_nofunc")
+    boton_descarga("⬇️ Descargar", {"Total puntaje no funcional": df_total_puntaje_nf}, "nf_total_puntaje.xlsx", "dl_nf_total_punt")
+
+    # ---- EXPORTAR EXCEL COMPLETO ----
+    st.divider()
+    buffer = BytesIO()
+    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+        df_final.to_excel(writer, index=False, sheet_name="F - Comparativo")
+        df_total.to_excel(writer, index=False, sheet_name="F - Total")
+        df_final_k.to_excel(writer, index=False, sheet_name="F - Calidad por hoja")
+        df_total_k.to_excel(writer, index=False, sheet_name="F - Total calidad")
+        df_puntaje.to_excel(writer, index=False, sheet_name="F - Puntaje funcional")
+        df_total_puntaje.to_excel(writer, index=False, sheet_name="F - Total puntaje")
+        df_final_nf.to_excel(writer, index=False, sheet_name="NF - Comparativo")
+        df_total_nf.to_excel(writer, index=False, sheet_name="NF - Total")
+        df_final_k_nf.to_excel(writer, index=False, sheet_name="NF - Calidad por hoja")
+        df_total_k_nf.to_excel(writer, index=False, sheet_name="NF - Total calidad")
+        df_puntaje_nf.to_excel(writer, index=False, sheet_name="NF - Puntaje")
+        df_total_puntaje_nf.to_excel(writer, index=False, sheet_name="NF - Total puntaje")
+
+    st.download_button(
+        "⬇️ Descargar reporte completo Excel",
+        buffer.getvalue(),
+        file_name="reporte.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        key="dl_reporte_completo"
+    )
