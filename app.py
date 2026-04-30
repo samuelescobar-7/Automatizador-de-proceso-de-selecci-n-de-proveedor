@@ -149,6 +149,30 @@ def analizar_archivo(path, pesos_f, peso_col_f, peso_col_g, pesos_k):
             resultados_nf, detalles_nf, resultados_k_nf, detalles_k_nf)
 
 
+def analizar_hoja_experiencia(wb, proveedor):
+    hoja_nombre = next((s for s in wb.sheetnames if s.strip().startswith("3.")), None)
+    if hoja_nombre is None:
+        return pd.DataFrame([{"Sector/Industria": "", "País": "", "Proveedor": proveedor}])
+    ws = wb[hoja_nombre]
+    data = []
+    for r in range(11, ws.max_row + 1):
+        num = ws.cell(r, 2).value
+        if num is None:
+            continue
+        sector = ws.cell(r, 4).value
+        pais   = ws.cell(r, 5).value
+        if sector is None and pais is None:
+            continue
+        data.append({
+            "Sector/Industria": str(sector).strip() if sector else "",
+            "País": str(pais).strip() if pais else "",
+            "Proveedor": proveedor
+        })
+    if not data:
+        return pd.DataFrame([{"Sector/Industria": "", "País": "", "Proveedor": proveedor}])
+    return pd.DataFrame(data)
+
+
 def construir_tablas(data, data_k, peso_total_cumplimiento, peso_total_calidad):
     df = pd.DataFrame(data)
     df_k = pd.DataFrame(data_k)
@@ -256,6 +280,7 @@ if archivos and not st.session_state["archivos_cargados"]:
     data_nf, data_k_nf = [], []
     detalles_globales, detalles_globales_k = {}, {}
     detalles_globales_nf, detalles_globales_k_nf = {}, {}
+    data_experiencia = []
 
     for archivo in archivos:
         proveedor = Path(archivo.name).stem
@@ -290,6 +315,11 @@ if archivos and not st.session_state["archivos_cargados"]:
             df_ = df_.copy(); df_["Proveedor"] = proveedor
             detalles_globales_k_nf.setdefault(hoja, []).append(df_)
 
+        wb_exp = openpyxl.load_workbook(path, data_only=True)
+        df_exp = analizar_hoja_experiencia(wb_exp, proveedor)
+        if df_exp is not None:
+            data_experiencia.append(df_exp)
+
     (df_final, df_total, df_final_k, df_total_k,
      df_puntaje, df_total_puntaje) = construir_tablas(
         data, data_k, peso_total_cumplimiento, peso_total_calidad
@@ -311,6 +341,7 @@ if archivos and not st.session_state["archivos_cargados"]:
         "detalles_globales_k": detalles_globales_k,
         "detalles_globales_nf": detalles_globales_nf,
         "detalles_globales_k_nf": detalles_globales_k_nf,
+        "data_experiencia": data_experiencia,
         "archivos_cargados": True
     })
 
@@ -336,6 +367,7 @@ if st.session_state["archivos_cargados"]:
     detalles_globales_k    = st.session_state["detalles_globales_k"]
     detalles_globales_nf   = st.session_state["detalles_globales_nf"]
     detalles_globales_k_nf = st.session_state["detalles_globales_k_nf"]
+    data_experiencia       = st.session_state["data_experiencia"]
 
     # ---- FUNCIONAL ----
     st.subheader("Cumplimiento funcional")
@@ -415,6 +447,62 @@ if st.session_state["archivos_cargados"]:
     st.dataframe(formatear_porcentaje_df(df_total_puntaje_nf), use_container_width=True, key="df_total_punt_nofunc")
     boton_descarga("⬇️ Descargar", {"Total puntaje no funcional": df_total_puntaje_nf}, "nf_total_puntaje.xlsx", "dl_nf_total_punt")
 
+    # ---- SOLIDEZ DEL FABRICANTE ----
+    st.subheader("Solidez del fabricante")
+
+    st.markdown("#### Experiencia del fabricante")
+    if data_experiencia:
+        df_exp_all = pd.concat(data_experiencia, ignore_index=True)
+        todos_proveedores = df_exp_all["Proveedor"].unique()
+
+        st.markdown("**Por Sector/Industria** — haz clic en una fila para ver los países")
+        pivot_sector = (
+            df_exp_all[df_exp_all["Sector/Industria"] != ""]
+            .groupby(["Sector/Industria", "Proveedor"]).size()
+            .unstack(fill_value=0)
+            .reindex(columns=todos_proveedores, fill_value=0)
+            .reset_index()
+        )
+
+        event_sector = st.dataframe(
+            pivot_sector,
+            use_container_width=True,
+            on_select="rerun",
+            selection_mode="single-row",
+            key="exp_sector"
+        )
+        boton_descarga("⬇️ Descargar sectores", {"Experiencia por sector": pivot_sector}, "experiencia_sector.xlsx", "dl_exp_sector")
+
+        if event_sector.selection.rows:
+            sector_sel = pivot_sector.iloc[event_sector.selection.rows[0]]["Sector/Industria"]
+            st.markdown(f"**Países en '{sector_sel}'**")
+            df_filtrado = df_exp_all[df_exp_all["Sector/Industria"] == sector_sel]
+            pivot_paises_det = (
+                df_filtrado[df_filtrado["País"] != ""]
+                .groupby(["País", "Proveedor"]).size()
+                .unstack(fill_value=0)
+                .reindex(columns=todos_proveedores, fill_value=0)
+                .reset_index()
+            )
+            st.dataframe(pivot_paises_det, use_container_width=True, key="exp_paises_det")
+            boton_descarga(
+                "⬇️ Descargar países",
+                {"Países": pivot_paises_det},
+                f"paises_{sector_sel}.xlsx",
+                "dl_exp_paises_det"
+            )
+    else:
+        st.info("No se encontraron datos de experiencia del fabricante.")
+
+    st.markdown("#### Información de la solución - Localización Colombia/Perú")
+    # tabla próximamente
+
+    st.markdown("#### Información de la solución - Evolución")
+    # tabla próximamente
+
+    st.markdown("#### Información de la solución - Red de partners")
+    # tabla próximamente
+
     # ---- EXPORTAR EXCEL COMPLETO ----
     st.divider()
     buffer = BytesIO()
@@ -431,6 +519,8 @@ if st.session_state["archivos_cargados"]:
         df_total_k_nf.to_excel(writer, index=False, sheet_name="NF - Total calidad")
         df_puntaje_nf.to_excel(writer, index=False, sheet_name="NF - Puntaje")
         df_total_puntaje_nf.to_excel(writer, index=False, sheet_name="NF - Total puntaje")
+        if data_experiencia:
+            pivot_sector.to_excel(writer, index=False, sheet_name="Exp - Por sector")
 
     st.download_button(
         "⬇️ Descargar reporte completo Excel",
