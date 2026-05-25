@@ -261,13 +261,11 @@ def construir_hoja_info_analisis(
 ):
     bloques = []
 
-    # ── 1. Fecha y hora de generación ──────────────────────────────────
     df_fecha = pd.DataFrame([{
         "Fecha y hora de generación del reporte": fecha_generacion
     }])
     bloques.append(("Generación del reporte", df_fecha))
 
-    # ── 2. Parámetros generales del sidebar ────────────────────────────
     params_generales = [
         {"Parámetro": "Incluir calidad en el análisis", "Valor": "Sí" if incluir_calidad else "No"},
         {"Parámetro": "Peso máximo columna F (cubrimiento)", "Valor": peso_col_f},
@@ -276,7 +274,6 @@ def construir_hoja_info_analisis(
     df_params = pd.DataFrame(params_generales)
     bloques.append(("Parámetros generales", df_params))
 
-    # ── 3. Pesos de respuestas columna F ───────────────────────────────
     pesos_f_rows = [
         {"Respuesta": k, "Peso aplicado": v}
         for k, v in pesos_f.items() if k != "VACIO"
@@ -284,7 +281,6 @@ def construir_hoja_info_analisis(
     df_pesos_f = pd.DataFrame(pesos_f_rows)
     bloques.append(("Pesos cubrimiento (columna F)", df_pesos_f))
 
-    # ── 4. Pesos de calidad (columna K) ────────────────────────────────
     if incluir_calidad:
         pesos_k_rows = [
             {"Respuesta": k, "Peso aplicado": v}
@@ -299,7 +295,6 @@ def construir_hoja_info_analisis(
         ])
         bloques.append(("Pesos totales puntaje combinado", df_pesos_totales))
 
-    # ── 5. Pesos por hoja funcional ────────────────────────────────────
     if pesos_hojas_func:
         df_ph_func = pd.DataFrame([
             {"Hoja": h, "Peso asignado (%)": p}
@@ -307,7 +302,6 @@ def construir_hoja_info_analisis(
         ])
         bloques.append(("Pesos por hoja funcional", df_ph_func))
 
-    # ── 6. Pesos por hoja no funcional ─────────────────────────────────
     if pesos_hojas_nf:
         df_ph_nf = pd.DataFrame([
             {"Hoja": h, "Peso asignado (%)": p}
@@ -315,7 +309,6 @@ def construir_hoja_info_analisis(
         ])
         bloques.append(("Pesos por hoja no funcional", df_ph_nf))
 
-    # ── 7. Información de archivos subidos ─────────────────────────────
     if metadata_archivos:
         df_archivos = pd.DataFrame(metadata_archivos)
         bloques.append(("Archivos analizados", df_archivos))
@@ -437,7 +430,6 @@ if archivos and not st.session_state["archivos_cargados"]:
         archivo_bytes = archivo.getvalue()
         tamano_kb = round(len(archivo_bytes) / 1024, 2)
 
-        # Fecha de modificación real desde metadatos del Excel, convertida a hora Colombia
         wb_meta = openpyxl.load_workbook(BytesIO(archivo_bytes), data_only=True)
         fecha_modificacion = obtener_fecha_modificacion(wb_meta)
 
@@ -577,23 +569,32 @@ if st.session_state["archivos_cargados"]:
                 label_visibility="collapsed"
             )
 
-    _, col_btn_f, _ = st.columns([2, 1, 2])
-    with col_btn_f:
-        if st.button("Generar total cumplimiento sin calidad", key="btn_total_func", use_container_width=True):
+    _, col_btn_func, _ = st.columns([2, 1, 2])
+    with col_btn_func:
+        if st.button("Generar total cumplimiento funcional", key="btn_total_func", use_container_width=True):
             st.session_state["mostrar_total_func"] = True
             proveedores_func = [c for c in df_final.columns if c != "Hoja"]
-            df_idx = df_final.set_index("Hoja")
-            pesos_actuales = {h: st.session_state.get(f"peso_hoja_func_{h}", 100) for h in hojas_func_list}
-            total_ponderado = {}
+            df_idx_func = df_final.set_index("Hoja")
+            pesos_actuales_func = {h: st.session_state.get(f"peso_hoja_func_{h}", 100) for h in hojas_func_list}
+            filas_ponderadas_func = []
+            for h in hojas_func_list:
+                if h not in df_idx_func.index:
+                    continue
+                fila = {"Hoja": h}
+                for prov in proveedores_func:
+                    fila[prov] = round(df_idx_func.loc[h, prov] * (pesos_actuales_func[h] / 100), 2)
+                filas_ponderadas_func.append(fila)
+            total_ponderado_func = {"Hoja": "TOTAL"}
             for prov in proveedores_func:
-                total_ponderado[prov] = round(
+                total_ponderado_func[prov] = round(
                     sum(
-                        (df_idx.loc[h, prov] / 100) * (pesos_actuales[h] / 100)
-                        for h in hojas_func_list if h in df_idx.index
+                        (df_idx_func.loc[h, prov] / 100) * (pesos_actuales_func[h] / 100)
+                        for h in hojas_func_list if h in df_idx_func.index
                     ) * 100, 2
                 )
-            st.session_state["df_total_func_ponderado"] = pd.DataFrame([{"Hoja": "TOTAL", **total_ponderado}])
-            st.session_state["snapshot_pesos_hojas_func"] = dict(pesos_actuales)
+            df_func_ponderado = pd.DataFrame(filas_ponderadas_func + [total_ponderado_func])
+            st.session_state["df_total_func_ponderado"] = df_func_ponderado
+            st.session_state["snapshot_pesos_hojas_func"] = dict(pesos_actuales_func)
 
     if st.session_state.get("mostrar_total_func", False):
         st.markdown("#### Total de cumplimiento funcional sin calidad")
@@ -665,7 +666,15 @@ if st.session_state["archivos_cargados"]:
             proveedores_nf = [c for c in df_final_nf.columns if c != "Hoja"]
             df_idx_nf = df_final_nf.set_index("Hoja")
             pesos_actuales_nf = {h: st.session_state.get(f"peso_hoja_nf_{h}", 100) for h in hojas_nofunc_list}
-            total_ponderado_nf = {}
+            filas_ponderadas_nf = []
+            for h in hojas_nofunc_list:
+                if h not in df_idx_nf.index:
+                    continue
+                fila = {"Hoja": h}
+                for prov in proveedores_nf:
+                    fila[prov] = round(df_idx_nf.loc[h, prov] * (pesos_actuales_nf[h] / 100), 2)
+                filas_ponderadas_nf.append(fila)
+            total_ponderado_nf = {"Hoja": "TOTAL"}
             for prov in proveedores_nf:
                 total_ponderado_nf[prov] = round(
                     sum(
@@ -673,7 +682,8 @@ if st.session_state["archivos_cargados"]:
                         for h in hojas_nofunc_list if h in df_idx_nf.index
                     ) * 100, 2
                 )
-            st.session_state["df_total_nf_ponderado"] = pd.DataFrame([{"Hoja": "TOTAL", **total_ponderado_nf}])
+            df_nf_ponderado = pd.DataFrame(filas_ponderadas_nf + [total_ponderado_nf])
+            st.session_state["df_total_nf_ponderado"] = df_nf_ponderado
             st.session_state["snapshot_pesos_hojas_nf"] = dict(pesos_actuales_nf)
 
     if st.session_state.get("mostrar_total_nf", False):
@@ -789,17 +799,26 @@ if st.session_state["archivos_cargados"]:
         metadata_archivos=metadata_archivos,
     )
 
+    # Para F-Total y NF-Total sin calidad: usar el total ponderado si fue generado,
+    # si no, usar el promedio simple.
+    if not analisis_con_calidad:
+        df_f_total_export = st.session_state.get("df_total_func_ponderado", df_total)
+        df_nf_total_export = st.session_state.get("df_total_nf_ponderado", df_total_nf)
+    else:
+        df_f_total_export = df_total
+        df_nf_total_export = df_total_nf
+
     buffer = BytesIO()
     with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
         df_final.to_excel(writer, index=False, sheet_name="F - Comparativo")
-        df_total.to_excel(writer, index=False, sheet_name="F - Total")
+        df_f_total_export.to_excel(writer, index=False, sheet_name="F - Total")
         if analisis_con_calidad and df_final_k is not None:
             df_final_k.to_excel(writer, index=False, sheet_name="F - Calidad por hoja")
             df_total_k.to_excel(writer, index=False, sheet_name="F - Total calidad")
             df_puntaje.to_excel(writer, index=False, sheet_name="F - Puntaje funcional")
             df_total_puntaje.to_excel(writer, index=False, sheet_name="F - Total puntaje")
         df_final_nf.to_excel(writer, index=False, sheet_name="NF - Comparativo")
-        df_total_nf.to_excel(writer, index=False, sheet_name="NF - Total")
+        df_nf_total_export.to_excel(writer, index=False, sheet_name="NF - Total")
         if analisis_con_calidad and df_final_k_nf is not None:
             df_final_k_nf.to_excel(writer, index=False, sheet_name="NF - Calidad por hoja")
             df_total_k_nf.to_excel(writer, index=False, sheet_name="NF - Total calidad")
