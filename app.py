@@ -178,6 +178,30 @@ def analizar_hoja_experiencia(wb, proveedor):
     return pd.DataFrame(data)
 
 
+def analizar_hoja_experiencia_oferente(wb, proveedor):
+    hoja_nombre = next((s for s in wb.sheetnames if s.strip().startswith("5.")), None)
+    if hoja_nombre is None:
+        return pd.DataFrame([{"Sector/Industria": "", "País": "", "Proveedor": proveedor}])
+    ws = wb[hoja_nombre]
+    data = []
+    for r in range(11, ws.max_row + 1):
+        num = ws.cell(r, 2).value
+        if num is None:
+            continue
+        sector = ws.cell(r, 4).value
+        pais   = ws.cell(r, 5).value
+        if sector is None and pais is None:
+            continue
+        data.append({
+            "Sector/Industria": str(sector).strip() if sector else "",
+            "País": str(pais).strip() if pais else "",
+            "Proveedor": proveedor
+        })
+    if not data:
+        return pd.DataFrame([{"Sector/Industria": "", "País": "", "Proveedor": proveedor}])
+    return pd.DataFrame(data)
+
+
 def construir_tablas(data, data_k, peso_total_cumplimiento, peso_total_calidad, incluir_calidad):
     df = pd.DataFrame(data)
     df_final = df.pivot_table(
@@ -476,6 +500,7 @@ if archivos and not st.session_state["archivos_cargados"]:
     detalles_globales, detalles_globales_k = {}, {}
     detalles_globales_nf, detalles_globales_k_nf = {}, {}
     data_experiencia = []
+    data_experiencia_oferente = []
     metadata_archivos = []
 
     for archivo in archivos:
@@ -527,6 +552,9 @@ if archivos and not st.session_state["archivos_cargados"]:
         df_exp = analizar_hoja_experiencia(wb_exp, proveedor)
         if df_exp is not None:
             data_experiencia.append(df_exp)
+        df_exp_oferente = analizar_hoja_experiencia_oferente(wb_exp, proveedor)
+        if df_exp_oferente is not None:
+            data_experiencia_oferente.append(df_exp_oferente)
 
     (df_final, df_total, df_final_k, df_total_k,
      df_puntaje, df_total_puntaje) = construir_tablas(
@@ -550,6 +578,7 @@ if archivos and not st.session_state["archivos_cargados"]:
         "detalles_globales_nf": detalles_globales_nf,
         "detalles_globales_k_nf": detalles_globales_k_nf,
         "data_experiencia": data_experiencia,
+        "data_experiencia_oferente": data_experiencia_oferente,
         "metadata_archivos": metadata_archivos,
         "param_incluir_calidad": incluir_calidad,
         "param_peso_col_f": peso_col_f,
@@ -584,7 +613,8 @@ if st.session_state["archivos_cargados"]:
     detalles_globales_k    = st.session_state["detalles_globales_k"]
     detalles_globales_nf   = st.session_state["detalles_globales_nf"]
     detalles_globales_k_nf = st.session_state["detalles_globales_k_nf"]
-    data_experiencia       = st.session_state["data_experiencia"]
+    data_experiencia         = st.session_state["data_experiencia"]
+    data_experiencia_oferente = st.session_state.get("data_experiencia_oferente", [])
     analisis_con_calidad   = st.session_state.get("analisis_con_calidad", False)
     metadata_archivos      = st.session_state.get("metadata_archivos", [])
 
@@ -982,6 +1012,178 @@ if st.session_state["archivos_cargados"]:
     st.markdown("#### Información de la solución - Red de partners")
     # tabla próximamente
 
+    # ---- CALIDAD DEL PROPONENTE ----
+    st.subheader("Calidad del proponente")
+
+    st.markdown("#### Experiencia del oferente")
+    if data_experiencia_oferente:
+        df_exp_of_all = pd.concat(data_experiencia_oferente, ignore_index=True)
+        todos_proveedores_of = list(df_exp_of_all["Proveedor"].unique())
+
+        pivot_sector_of = (
+            df_exp_of_all[df_exp_of_all["Sector/Industria"] != ""]
+            .groupby(["Sector/Industria", "Proveedor"]).size()
+            .unstack(fill_value=0)
+            .reindex(columns=todos_proveedores_of, fill_value=0)
+            .reset_index()
+        )
+
+        import json as _json
+        sectores_data_of = []
+        for _, row_s in pivot_sector_of.iterrows():
+            sector = row_s["Sector/Industria"]
+            df_fil = df_exp_of_all[df_exp_of_all["Sector/Industria"] == sector]
+            pivot_p = (
+                df_fil[df_fil["País"] != ""]
+                .groupby(["País", "Proveedor"]).size()
+                .unstack(fill_value=0)
+                .reindex(columns=todos_proveedores_of, fill_value=0)
+                .reset_index()
+            )
+            paises = [
+                {"pais": row_p["País"], "vals": [int(row_p[p]) for p in todos_proveedores_of]}
+                for _, row_p in pivot_p.iterrows()
+            ]
+            sectores_data_of.append({
+                "sector": sector,
+                "vals": [int(row_s[p]) for p in todos_proveedores_of],
+                "paises": paises
+            })
+
+        proveedores_json_of = _json.dumps(todos_proveedores_of)
+        sectores_json_of    = _json.dumps(sectores_data_of)
+
+        tabla_of_html = f"""
+<style>
+  .wrap-exp-of {{
+    font-family: inherit;
+    border: 1px solid #3a3a4a;
+    border-radius: 6px;
+    overflow: hidden;
+    max-height: 520px;
+    overflow-y: auto;
+  }}
+  .exp-tbl-of {{
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13.5px;
+  }}
+  .exp-tbl-of thead tr {{
+    background: #16213e;
+    position: sticky;
+    top: 0;
+    z-index: 2;
+  }}
+  .exp-tbl-of th {{
+    padding: 9px 14px;
+    text-align: left;
+    color: #a0aec0;
+    font-weight: 600;
+    border-bottom: 1px solid #3a3a4a;
+    white-space: nowrap;
+  }}
+  .exp-tbl-of th.num-of, .exp-tbl-of td.num-of {{ text-align: right; }}
+  .sector-tr-of {{
+    background: #1a1a2e;
+    cursor: pointer;
+    transition: background 0.15s;
+  }}
+  .sector-tr-of:hover {{ background: #252545 !important; }}
+  .sector-tr-of.open-of {{ background: #1e2a45 !important; }}
+  .sector-tr-of td {{
+    padding: 8px 14px;
+    border-bottom: 1px solid #2d2d3d;
+    color: #e2e8f0;
+  }}
+  .arrow-of {{
+    display: inline-block;
+    width: 16px;
+    font-size: 10px;
+    color: #63b3ed;
+    transition: transform 0.2s;
+    user-select: none;
+  }}
+  .arrow-of.open-of {{ transform: rotate(90deg); }}
+  .pais-tr-of {{ display: none; background: #111827; }}
+  .pais-tr-of.visible-of {{ display: table-row; }}
+  .pais-tr-of td {{
+    padding: 6px 14px 6px 38px;
+    color: #90cdf4;
+    font-size: 13px;
+    border-bottom: 1px solid #1f2937;
+  }}
+  .pais-tr-of td.num-of {{ color: #7dd3fc; }}
+</style>
+<div class="wrap-exp-of">
+  <table class="exp-tbl-of" id="expTblOf">
+    <thead>
+      <tr>
+        <th style="width:24px"></th>
+        <th>Sector / Industria</th>
+        {"".join(f'<th class="num-of">{p}</th>' for p in todos_proveedores_of)}
+      </tr>
+    </thead>
+    <tbody id="expBodyOf"></tbody>
+  </table>
+</div>
+<script>
+(function() {{
+  var proveedores = {proveedores_json_of};
+  var sectores   = {sectores_json_of};
+  var tbody = document.getElementById("expBodyOf");
+  sectores.forEach(function(s, si) {{
+    var tr = document.createElement("tr");
+    tr.className = "sector-tr-of";
+    tr.dataset.idx = si;
+    var arrowId = "arr-of-" + si;
+    tr.innerHTML = "<td><span class='arrow-of' id='" + arrowId + "'>&#9658;</span></td>"
+      + "<td>" + s.sector + "</td>"
+      + s.vals.map(function(v) {{ return "<td class='num-of'>" + v + "</td>"; }}).join("");
+    tr.addEventListener("click", function() {{
+      var arrow = document.getElementById(arrowId);
+      var isOpen = tr.classList.contains("open-of");
+      document.querySelectorAll(".sector-tr-of.open-of").forEach(function(el) {{ el.classList.remove("open-of"); }});
+      document.querySelectorAll(".arrow-of.open-of").forEach(function(el) {{ el.classList.remove("open-of"); }});
+      document.querySelectorAll(".pais-tr-of.visible-of").forEach(function(el) {{ el.classList.remove("visible-of"); }});
+      if (!isOpen) {{
+        tr.classList.add("open-of");
+        arrow.classList.add("open-of");
+        document.querySelectorAll(".pais-tr-of[data-parent='" + si + "']").forEach(function(el) {{ el.classList.add("visible-of"); }});
+      }}
+    }});
+    tbody.appendChild(tr);
+    s.paises.forEach(function(p) {{
+      var trP = document.createElement("tr");
+      trP.className = "pais-tr-of";
+      trP.dataset.parent = si;
+      trP.innerHTML = "<td></td><td>&#127758; " + p.pais + "</td>"
+        + p.vals.map(function(v) {{ return "<td class='num-of'>" + v + "</td>"; }}).join("");
+      tbody.appendChild(trP);
+    }});
+  }});
+}})();
+</script>
+"""
+        st.markdown("**Por Sector/Industria** — haz clic en una fila para desplegar los países")
+        components.html(tabla_of_html, height=540, scrolling=False)
+        boton_descarga(
+            "⬇️ Descargar sectores oferente",
+            {"Experiencia por sector": pivot_sector_of},
+            "experiencia_sector_oferente.xlsx",
+            "dl_exp_sector_of"
+        )
+    else:
+        st.info("No se encontraron datos de experiencia del oferente (hoja '5.').")
+
+    st.markdown("#### Alcance de servicios")
+    # tabla próximamente
+
+    st.markdown("#### Metodología Implementación")
+    # tabla próximamente
+
+    st.markdown("#### Equipo Implementador")
+    # tabla próximamente
+
     # ---- EXPORTAR EXCEL COMPLETO ----
     st.divider()
 
@@ -1035,6 +1237,18 @@ if st.session_state["archivos_cargados"]:
             df_total_puntaje_nf.to_excel(writer, index=False, sheet_name="NF - Total puntaje")
         if data_experiencia:
             pivot_sector.to_excel(writer, index=False, sheet_name="Exp - Por sector")
+
+        if data_experiencia_oferente:
+            _df_of_all = pd.concat(data_experiencia_oferente, ignore_index=True)
+            _provs_of = list(_df_of_all["Proveedor"].unique())
+            _pivot_of = (
+                _df_of_all[_df_of_all["Sector/Industria"] != ""]
+                .groupby(["Sector/Industria", "Proveedor"]).size()
+                .unstack(fill_value=0)
+                .reindex(columns=_provs_of, fill_value=0)
+                .reset_index()
+            )
+            _pivot_of.to_excel(writer, index=False, sheet_name="Exp - Oferente por sector")
 
         escribir_hoja_info_analisis(writer, bloques_info)
 
