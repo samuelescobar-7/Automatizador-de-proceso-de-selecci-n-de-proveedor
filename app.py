@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 import openpyxl
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 
 
 # =========================
@@ -779,9 +780,9 @@ if st.session_state["archivos_cargados"]:
     st.markdown("#### Experiencia del fabricante")
     if data_experiencia:
         df_exp_all = pd.concat(data_experiencia, ignore_index=True)
-        todos_proveedores = df_exp_all["Proveedor"].unique()
+        todos_proveedores = list(df_exp_all["Proveedor"].unique())
 
-        st.markdown("**Por Sector/Industria** — haz clic en una fila para ver los países")
+        # Pivot de sectores
         pivot_sector = (
             df_exp_all[df_exp_all["Sector/Industria"] != ""]
             .groupby(["Sector/Industria", "Proveedor"]).size()
@@ -790,33 +791,185 @@ if st.session_state["archivos_cargados"]:
             .reset_index()
         )
 
-        event_sector = st.dataframe(
-            pivot_sector,
-            use_container_width=True,
-            on_select="rerun",
-            selection_mode="single-row",
-            key="exp_sector"
-        )
-        boton_descarga("⬇️ Descargar sectores", {"Experiencia por sector": pivot_sector}, "experiencia_sector.xlsx", "dl_exp_sector")
+        st.markdown("**Por Sector/Industria** — haz clic en una fila para desplegar los países")
 
-        if event_sector.selection.rows:
-            sector_sel = pivot_sector.iloc[event_sector.selection.rows[0]]["Sector/Industria"]
-            st.markdown(f"**Países en '{sector_sel}'**")
-            df_filtrado = df_exp_all[df_exp_all["Sector/Industria"] == sector_sel]
-            pivot_paises_det = (
+        # Construir datos JSON para la tabla interactiva
+        import json
+
+        sectores_data = []
+        for _, row_s in pivot_sector.iterrows():
+            sector = row_s["Sector/Industria"]
+            df_filtrado = df_exp_all[df_exp_all["Sector/Industria"] == sector]
+            pivot_p = (
                 df_filtrado[df_filtrado["País"] != ""]
                 .groupby(["País", "Proveedor"]).size()
                 .unstack(fill_value=0)
                 .reindex(columns=todos_proveedores, fill_value=0)
                 .reset_index()
             )
-            st.dataframe(pivot_paises_det, use_container_width=True, key="exp_paises_det")
-            boton_descarga(
-                "⬇️ Descargar países",
-                {"Países": pivot_paises_det},
-                f"paises_{sector_sel}.xlsx",
-                "dl_exp_paises_det"
-            )
+            paises = []
+            for _, row_p in pivot_p.iterrows():
+                paises.append({
+                    "pais": row_p["País"],
+                    "vals": [int(row_p[p]) for p in todos_proveedores]
+                })
+            sectores_data.append({
+                "sector": sector,
+                "vals": [int(row_s[p]) for p in todos_proveedores],
+                "paises": paises
+            })
+
+        proveedores_json = json.dumps(todos_proveedores)
+        sectores_json = json.dumps(sectores_data)
+
+        tabla_html = f"""
+<style>
+  .wrap-exp {{
+    font-family: inherit;
+    border: 1px solid #3a3a4a;
+    border-radius: 6px;
+    overflow: hidden;
+    max-height: 520px;
+    overflow-y: auto;
+  }}
+  .exp-tbl {{
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13.5px;
+  }}
+  .exp-tbl thead tr {{
+    background: #16213e;
+    position: sticky;
+    top: 0;
+    z-index: 2;
+  }}
+  .exp-tbl th {{
+    padding: 9px 14px;
+    text-align: left;
+    color: #a0aec0;
+    font-weight: 600;
+    border-bottom: 1px solid #3a3a4a;
+    white-space: nowrap;
+  }}
+  .exp-tbl th.num, .exp-tbl td.num {{
+    text-align: right;
+  }}
+  .sector-tr {{
+    background: #1a1a2e;
+    cursor: pointer;
+    transition: background 0.15s;
+  }}
+  .sector-tr:hover {{
+    background: #252545 !important;
+  }}
+  .sector-tr.open {{
+    background: #1e2a45 !important;
+  }}
+  .sector-tr td {{
+    padding: 8px 14px;
+    border-bottom: 1px solid #2d2d3d;
+    color: #e2e8f0;
+  }}
+  .arrow {{
+    display: inline-block;
+    width: 16px;
+    font-size: 10px;
+    color: #63b3ed;
+    transition: transform 0.2s;
+    user-select: none;
+  }}
+  .arrow.open {{ transform: rotate(90deg); }}
+  .pais-tr {{
+    display: none;
+    background: #111827;
+  }}
+  .pais-tr.visible {{ display: table-row; }}
+  .pais-tr td {{
+    padding: 6px 14px 6px 38px;
+    color: #90cdf4;
+    font-size: 13px;
+    border-bottom: 1px solid #1f2937;
+  }}
+  .pais-tr td.num {{ color: #7dd3fc; }}
+</style>
+<div class="wrap-exp">
+  <table class="exp-tbl" id="expTbl">
+    <thead>
+      <tr>
+        <th style="width:24px"></th>
+        <th>Sector / Industria</th>
+        {"".join(f'<th class="num">{p}</th>' for p in todos_proveedores)}
+      </tr>
+    </thead>
+    <tbody id="expBody"></tbody>
+  </table>
+</div>
+<script>
+(function() {{
+  const proveedores = {proveedores_json};
+  const sectores   = {sectores_json};
+  const tbody = document.getElementById("expBody");
+
+  sectores.forEach(function(s, si) {{
+    // fila sector
+    var tr = document.createElement("tr");
+    tr.className = "sector-tr";
+    tr.dataset.idx = si;
+    var arrowId = "arr-" + si;
+    var tdArrow = "<td><span class='arrow' id='" + arrowId + "'>&#9658;</span></td>";
+    var tdSector = "<td>" + s.sector + "</td>";
+    var tdVals = s.vals.map(function(v) {{
+      return "<td class='num'>" + v + "</td>";
+    }}).join("");
+    tr.innerHTML = tdArrow + tdSector + tdVals;
+    tr.addEventListener("click", function() {{
+      var arrow = document.getElementById(arrowId);
+      var isOpen = tr.classList.contains("open");
+      // cerrar todos
+      document.querySelectorAll(".sector-tr.open").forEach(function(el) {{
+        el.classList.remove("open");
+      }});
+      document.querySelectorAll(".arrow.open").forEach(function(el) {{
+        el.classList.remove("open");
+      }});
+      document.querySelectorAll(".pais-tr.visible").forEach(function(el) {{
+        el.classList.remove("visible");
+      }});
+      if (!isOpen) {{
+        tr.classList.add("open");
+        arrow.classList.add("open");
+        document.querySelectorAll(".pais-tr[data-parent='" + si + "']").forEach(function(el) {{
+          el.classList.add("visible");
+        }});
+      }}
+    }});
+    tbody.appendChild(tr);
+
+    // filas países
+    s.paises.forEach(function(p) {{
+      var trP = document.createElement("tr");
+      trP.className = "pais-tr";
+      trP.dataset.parent = si;
+      var tdPais = "<td></td><td>&#127758; " + p.pais + "</td>";
+      var tdPVals = p.vals.map(function(v) {{
+        return "<td class='num'>" + v + "</td>";
+      }}).join("");
+      trP.innerHTML = tdPais + tdPVals;
+      tbody.appendChild(trP);
+    }});
+  }});
+}})();
+</script>
+"""
+        components.html(tabla_html, height=540, scrolling=False)
+
+        boton_descarga(
+            "⬇️ Descargar sectores",
+            {"Experiencia por sector": pivot_sector},
+            "experiencia_sector.xlsx",
+            "dl_exp_sector"
+        )
+
     else:
         st.info("No se encontraron datos de experiencia del fabricante.")
 
