@@ -2,6 +2,8 @@ import re
 from io import BytesIO
 from pathlib import Path
 from tempfile import NamedTemporaryFile
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import openpyxl
 import pandas as pd
@@ -233,6 +235,127 @@ def boton_descarga(label, dfs: dict, file_name: str, key: str):
     )
 
 
+def obtener_fecha_modificacion(wb):
+    try:
+        modified = wb.properties.modified
+        if modified:
+            modified_local = modified.replace(tzinfo=ZoneInfo("UTC")).astimezone(ZoneInfo("America/Bogota"))
+            return modified_local.strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        pass
+    return "No disponible"
+
+
+def construir_hoja_info_analisis(
+    fecha_generacion,
+    incluir_calidad,
+    peso_col_f,
+    peso_col_g,
+    pesos_f,
+    pesos_k,
+    peso_total_cumplimiento,
+    peso_total_calidad,
+    pesos_hojas_func,
+    pesos_hojas_nf,
+    metadata_archivos,
+):
+    bloques = []
+
+    # ── 1. Fecha y hora de generación ──────────────────────────────────
+    df_fecha = pd.DataFrame([{
+        "Fecha y hora de generación del reporte": fecha_generacion
+    }])
+    bloques.append(("Generación del reporte", df_fecha))
+
+    # ── 2. Parámetros generales del sidebar ────────────────────────────
+    params_generales = [
+        {"Parámetro": "Incluir calidad en el análisis", "Valor": "Sí" if incluir_calidad else "No"},
+        {"Parámetro": "Peso máximo columna F (cubrimiento)", "Valor": peso_col_f},
+        {"Parámetro": "Peso máximo columna G (inclusión)",   "Valor": peso_col_g},
+    ]
+    df_params = pd.DataFrame(params_generales)
+    bloques.append(("Parámetros generales", df_params))
+
+    # ── 3. Pesos de respuestas columna F ───────────────────────────────
+    pesos_f_rows = [
+        {"Respuesta": k, "Peso aplicado": v}
+        for k, v in pesos_f.items() if k != "VACIO"
+    ]
+    df_pesos_f = pd.DataFrame(pesos_f_rows)
+    bloques.append(("Pesos cubrimiento (columna F)", df_pesos_f))
+
+    # ── 4. Pesos de calidad (columna K) ────────────────────────────────
+    if incluir_calidad:
+        pesos_k_rows = [
+            {"Respuesta": k, "Peso aplicado": v}
+            for k, v in pesos_k.items() if k != "VACIO"
+        ]
+        df_pesos_k = pd.DataFrame(pesos_k_rows)
+        bloques.append(("Pesos calidad (columna K)", df_pesos_k))
+
+        df_pesos_totales = pd.DataFrame([
+            {"Parámetro": "Peso total cumplimiento", "Valor": peso_total_cumplimiento},
+            {"Parámetro": "Peso total calidad",      "Valor": peso_total_calidad},
+        ])
+        bloques.append(("Pesos totales puntaje combinado", df_pesos_totales))
+
+    # ── 5. Pesos por hoja funcional ────────────────────────────────────
+    if pesos_hojas_func:
+        df_ph_func = pd.DataFrame([
+            {"Hoja": h, "Peso asignado (%)": p}
+            for h, p in pesos_hojas_func.items()
+        ])
+        bloques.append(("Pesos por hoja funcional", df_ph_func))
+
+    # ── 6. Pesos por hoja no funcional ─────────────────────────────────
+    if pesos_hojas_nf:
+        df_ph_nf = pd.DataFrame([
+            {"Hoja": h, "Peso asignado (%)": p}
+            for h, p in pesos_hojas_nf.items()
+        ])
+        bloques.append(("Pesos por hoja no funcional", df_ph_nf))
+
+    # ── 7. Información de archivos subidos ─────────────────────────────
+    if metadata_archivos:
+        df_archivos = pd.DataFrame(metadata_archivos)
+        bloques.append(("Archivos analizados", df_archivos))
+
+    return bloques
+
+
+def escribir_hoja_info_analisis(writer, bloques):
+    ws = writer.book.create_sheet("Informacion de analisis")
+    fila_actual = 1
+
+    for titulo, df in bloques:
+        cell = ws.cell(row=fila_actual, column=1, value=titulo)
+        cell.font = openpyxl.styles.Font(bold=True, size=11)
+        fila_actual += 1
+
+        for col_idx, col_name in enumerate(df.columns, start=1):
+            ws.cell(row=fila_actual, column=col_idx, value=col_name).font = \
+                openpyxl.styles.Font(bold=True)
+        fila_actual += 1
+
+        for _, row in df.iterrows():
+            for col_idx, value in enumerate(row, start=1):
+                ws.cell(row=fila_actual, column=col_idx, value=value)
+            fila_actual += 1
+
+        fila_actual += 1
+
+    for col in ws.columns:
+        max_len = 0
+        col_letter = col[0].column_letter
+        for cell in col:
+            try:
+                if cell.value:
+                    max_len = max(max_len, len(str(cell.value)))
+            except Exception:
+                pass
+        ws.column_dimensions[col_letter].width = min(max_len + 4, 60)
+
+
 # =========================
 # UI
 # =========================
@@ -244,7 +367,6 @@ if st.sidebar.button("Reiniciar análisis"):
     st.rerun()
 
 with st.sidebar:
-    # --- Toggle calidad ---
     if "incluir_calidad" not in st.session_state:
         st.session_state["incluir_calidad"] = False
 
@@ -275,7 +397,6 @@ with st.sidebar:
         "VACIO": 0.0
     }
 
-    # Solo mostrar pesos de calidad si el toggle está activo
     if incluir_calidad:
         st.divider()
         st.markdown("**Pesos calidad:**")
@@ -309,11 +430,25 @@ if archivos and not st.session_state["archivos_cargados"]:
     detalles_globales, detalles_globales_k = {}, {}
     detalles_globales_nf, detalles_globales_k_nf = {}, {}
     data_experiencia = []
+    metadata_archivos = []
 
     for archivo in archivos:
         proveedor = Path(archivo.name).stem
+        archivo_bytes = archivo.getvalue()
+        tamano_kb = round(len(archivo_bytes) / 1024, 2)
+
+        # Fecha de modificación real desde metadatos del Excel, convertida a hora Colombia
+        wb_meta = openpyxl.load_workbook(BytesIO(archivo_bytes), data_only=True)
+        fecha_modificacion = obtener_fecha_modificacion(wb_meta)
+
+        metadata_archivos.append({
+            "Nombre del archivo": archivo.name,
+            "Tamaño (KB)": tamano_kb,
+            "Fecha y hora de última modificación": fecha_modificacion,
+        })
+
         with NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
-            tmp.write(archivo.getvalue())
+            tmp.write(archivo_bytes)
             path = tmp.name
 
         (resultados, detalles, resultados_k, detalles_k,
@@ -370,6 +505,14 @@ if archivos and not st.session_state["archivos_cargados"]:
         "detalles_globales_nf": detalles_globales_nf,
         "detalles_globales_k_nf": detalles_globales_k_nf,
         "data_experiencia": data_experiencia,
+        "metadata_archivos": metadata_archivos,
+        "param_incluir_calidad": incluir_calidad,
+        "param_peso_col_f": peso_col_f,
+        "param_peso_col_g": peso_col_g,
+        "param_pesos_f": dict(pesos_f),
+        "param_pesos_k": dict(pesos_k),
+        "param_peso_total_cumplimiento": peso_total_cumplimiento,
+        "param_peso_total_calidad": peso_total_calidad,
         "archivos_cargados": True,
         "analisis_con_calidad": incluir_calidad
     })
@@ -398,6 +541,7 @@ if st.session_state["archivos_cargados"]:
     detalles_globales_k_nf = st.session_state["detalles_globales_k_nf"]
     data_experiencia       = st.session_state["data_experiencia"]
     analisis_con_calidad   = st.session_state.get("analisis_con_calidad", False)
+    metadata_archivos      = st.session_state.get("metadata_archivos", [])
 
     # ---- FUNCIONAL ----
     st.subheader("Cumplimiento funcional")
@@ -415,7 +559,6 @@ if st.session_state["archivos_cargados"]:
     st.markdown("#### Pesos por hoja funcional")
     hojas_func_list = df_final["Hoja"].tolist()
 
-    # Inicializar keys solo si no existen, para no sobreescribir en rerun
     for hoja_w in hojas_func_list:
         if f"peso_hoja_func_{hoja_w}" not in st.session_state:
             st.session_state[f"peso_hoja_func_{hoja_w}"] = 100
@@ -440,7 +583,6 @@ if st.session_state["archivos_cargados"]:
             st.session_state["mostrar_total_func"] = True
             proveedores_func = [c for c in df_final.columns if c != "Hoja"]
             df_idx = df_final.set_index("Hoja")
-            # Leer pesos directo desde session_state para garantizar valores actuales
             pesos_actuales = {h: st.session_state.get(f"peso_hoja_func_{h}", 100) for h in hojas_func_list}
             total_ponderado = {}
             for prov in proveedores_func:
@@ -451,6 +593,7 @@ if st.session_state["archivos_cargados"]:
                     ) * 100, 2
                 )
             st.session_state["df_total_func_ponderado"] = pd.DataFrame([{"Hoja": "TOTAL", **total_ponderado}])
+            st.session_state["snapshot_pesos_hojas_func"] = dict(pesos_actuales)
 
     if st.session_state.get("mostrar_total_func", False):
         st.markdown("#### Total de cumplimiento funcional sin calidad")
@@ -531,6 +674,7 @@ if st.session_state["archivos_cargados"]:
                     ) * 100, 2
                 )
             st.session_state["df_total_nf_ponderado"] = pd.DataFrame([{"Hoja": "TOTAL", **total_ponderado_nf}])
+            st.session_state["snapshot_pesos_hojas_nf"] = dict(pesos_actuales_nf)
 
     if st.session_state.get("mostrar_total_nf", False):
         st.markdown("#### Total de cumplimiento no funcional sin calidad")
@@ -619,6 +763,32 @@ if st.session_state["archivos_cargados"]:
 
     # ---- EXPORTAR EXCEL COMPLETO ----
     st.divider()
+
+    pesos_hojas_func_reporte = st.session_state.get(
+        "snapshot_pesos_hojas_func",
+        {h: st.session_state.get(f"peso_hoja_func_{h}", 100) for h in df_final["Hoja"].tolist()}
+    )
+    pesos_hojas_nf_reporte = st.session_state.get(
+        "snapshot_pesos_hojas_nf",
+        {h: st.session_state.get(f"peso_hoja_nf_{h}", 100) for h in df_final_nf["Hoja"].tolist()}
+    )
+
+    fecha_generacion = datetime.now(tz=ZoneInfo("America/Bogota")).strftime("%Y-%m-%d %H:%M:%S")
+
+    bloques_info = construir_hoja_info_analisis(
+        fecha_generacion=fecha_generacion,
+        incluir_calidad=st.session_state.get("param_incluir_calidad", analisis_con_calidad),
+        peso_col_f=st.session_state.get("param_peso_col_f", peso_col_f),
+        peso_col_g=st.session_state.get("param_peso_col_g", peso_col_g),
+        pesos_f=st.session_state.get("param_pesos_f", pesos_f),
+        pesos_k=st.session_state.get("param_pesos_k", pesos_k),
+        peso_total_cumplimiento=st.session_state.get("param_peso_total_cumplimiento", peso_total_cumplimiento),
+        peso_total_calidad=st.session_state.get("param_peso_total_calidad", peso_total_calidad),
+        pesos_hojas_func=pesos_hojas_func_reporte,
+        pesos_hojas_nf=pesos_hojas_nf_reporte,
+        metadata_archivos=metadata_archivos,
+    )
+
     buffer = BytesIO()
     with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
         df_final.to_excel(writer, index=False, sheet_name="F - Comparativo")
@@ -637,6 +807,8 @@ if st.session_state["archivos_cargados"]:
             df_total_puntaje_nf.to_excel(writer, index=False, sheet_name="NF - Total puntaje")
         if data_experiencia:
             pivot_sector.to_excel(writer, index=False, sheet_name="Exp - Por sector")
+
+        escribir_hoja_info_analisis(writer, bloques_info)
 
     st.download_button(
         "⬇️ Descargar reporte completo Excel",
