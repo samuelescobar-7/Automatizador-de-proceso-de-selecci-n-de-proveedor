@@ -571,7 +571,7 @@ if st.session_state["archivos_cargados"]:
 
     _, col_btn_func, _ = st.columns([2, 1, 2])
     with col_btn_func:
-        if st.button("Generar total cumplimiento funcional", key="btn_total_func", use_container_width=True):
+        if st.button("Generar total cumplimiento funcional sin calidad", key="btn_total_func", use_container_width=True):
             st.session_state["mostrar_total_func"] = True
             proveedores_func = [c for c in df_final.columns if c != "Hoja"]
             df_idx_func = df_final.set_index("Hoja")
@@ -661,7 +661,7 @@ if st.session_state["archivos_cargados"]:
 
     _, col_btn_nf, _ = st.columns([2, 1, 2])
     with col_btn_nf:
-        if st.button("Generar total cumplimiento sin calidad", key="btn_total_nf", use_container_width=True):
+        if st.button("Generar total cumplimiento No funcional sin calidad", key="btn_total_nf", use_container_width=True):
             st.session_state["mostrar_total_nf"] = True
             proveedores_nf = [c for c in df_final_nf.columns if c != "Hoja"]
             df_idx_nf = df_final_nf.set_index("Hoja")
