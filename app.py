@@ -373,15 +373,43 @@ with st.sidebar:
     st.divider()
 
     st.header("Pesos cumplimiento funcional")
+    st.caption("Todos los pesos son valores decimales entre 0.0 y 1.0")
 
-    peso_col_f = st.slider("Peso máximo columna F (cubrimiento)", 0.0, 1.0, 1.0)
-    peso_col_g = st.slider("Peso máximo columna G (inclusión)", 0.0, 1.0, 1.0)
+    peso_col_f = st.number_input(
+        "Peso máximo columna F (cubrimiento) — rango: 0.0 a 1.0",
+        min_value=0.0, max_value=1.0, value=1.0, step=0.05, format="%.2f",
+        key="ni_peso_col_f"
+    )
+    peso_col_g = st.number_input(
+        "Peso máximo columna G (inclusión) — rango: 0.0 a 1.0",
+        min_value=0.0, max_value=1.0, value=1.0, step=0.05, format="%.2f",
+        key="ni_peso_col_g"
+    )
 
-    st.markdown("**Pesos cubrimiento:**")
-    _si_pct         = st.slider("SI (columna F)",          0.0, 1.0, 1.0)
-    _desarrollo_pct = st.slider("DESARROLLO (columna F)",  0.0, 1.0, 0.5)
-    _tercero_pct    = st.slider("TERCERO (columna F)",     0.0, 1.0, 0.5)
-    _no_pct         = st.slider("NO (columna F)",          0.0, 1.0, 0.0)
+    st.markdown("**Pesos cubrimiento (proporción del peso máximo col F):**")
+    st.caption("Cada valor indica qué fracción del peso máximo de col F se asigna a esa respuesta. Rango: 0.0 a 1.0")
+
+    _si_pct = st.number_input(
+        "SI (columna F) — rango: 0.0 a 1.0, pred: 1.0",
+        min_value=0.0, max_value=1.0, value=1.0, step=0.05, format="%.2f",
+        key="ni_si_pct"
+    )
+    _desarrollo_pct = st.number_input(
+        "DESARROLLO (columna F) — rango: 0.0 a 1.0, pred: 0.5",
+        min_value=0.0, max_value=1.0, value=0.5, step=0.05, format="%.2f",
+        key="ni_desarrollo_pct"
+    )
+    _tercero_pct = st.number_input(
+        "TERCERO (columna F) — rango: 0.0 a 1.0, pred: 0.5",
+        min_value=0.0, max_value=1.0, value=0.5, step=0.05, format="%.2f",
+        key="ni_tercero_pct"
+    )
+    _no_pct = st.number_input(
+        "NO (columna F) — rango: 0.0 a 1.0, pred: 0.0",
+        min_value=0.0, max_value=1.0, value=0.0, step=0.05, format="%.2f",
+        key="ni_no_pct"
+    )
+
     pesos_f = {
         "SI":          _si_pct         * peso_col_f,
         "DESARROLLO":  _desarrollo_pct * peso_col_f,
@@ -392,17 +420,41 @@ with st.sidebar:
 
     if incluir_calidad:
         st.divider()
-        st.markdown("**Pesos calidad:**")
+        st.markdown("**Pesos calidad (columna K):**")
+        st.caption("Rango: 0.0 a 1.0")
+
         pesos_k = {
-            "COMPLETO": st.slider("Completo (columna K)", 0.0, 1.0, 1.0),
-            "PARCIAL": st.slider("Parcial (columna K)", 0.0, 1.0, 0.5),
-            "INCOMPLETO": st.slider("Incompleto (columna K)", 0.0, 1.0, 0.0),
+            "COMPLETO": st.number_input(
+                "Completo (columna K) — rango: 0.0 a 1.0, pred: 1.0",
+                min_value=0.0, max_value=1.0, value=1.0, step=0.05, format="%.2f",
+                key="ni_k_completo"
+            ),
+            "PARCIAL": st.number_input(
+                "Parcial (columna K) — rango: 0.0 a 1.0, pred: 0.5",
+                min_value=0.0, max_value=1.0, value=0.5, step=0.05, format="%.2f",
+                key="ni_k_parcial"
+            ),
+            "INCOMPLETO": st.number_input(
+                "Incompleto (columna K) — rango: 0.0 a 1.0, pred: 0.0",
+                min_value=0.0, max_value=1.0, value=0.0, step=0.05, format="%.2f",
+                key="ni_k_incompleto"
+            ),
             "VACIO": 0.0
         }
 
-        st.markdown("**Pesos totales:**")
-        peso_total_cumplimiento = st.slider("Peso total cumplimiento", 0.0, 1.0, 1.0)
-        peso_total_calidad = st.slider("Peso total calidad", 0.0, 1.0, 1.0)
+        st.markdown("**Pesos totales del puntaje combinado:**")
+        st.caption("Rango: 0.0 a 1.0")
+
+        peso_total_cumplimiento = st.number_input(
+            "Peso total cumplimiento — rango: 0.0 a 1.0, pred: 1.0",
+            min_value=0.0, max_value=1.0, value=1.0, step=0.05, format="%.2f",
+            key="ni_peso_total_cum"
+        )
+        peso_total_calidad = st.number_input(
+            "Peso total calidad — rango: 0.0 a 1.0, pred: 1.0",
+            min_value=0.0, max_value=1.0, value=1.0, step=0.05, format="%.2f",
+            key="ni_peso_total_cal"
+        )
     else:
         pesos_k = {"COMPLETO": 1.0, "PARCIAL": 0.5, "INCOMPLETO": 0.0, "VACIO": 0.0}
         peso_total_cumplimiento = 1.0
@@ -549,6 +601,7 @@ if st.session_state["archivos_cargados"]:
         st.switch_page("pages/detalle_hoja.py")
 
     st.markdown("#### Pesos por hoja funcional")
+    st.caption("Rango: 0 a 100 — indica el peso porcentual de cada hoja en el total funcional")
     hojas_func_list = df_final["Hoja"].tolist()
 
     for hoja_w in hojas_func_list:
@@ -557,14 +610,16 @@ if st.session_state["archivos_cargados"]:
 
     pesos_hojas_func = {}
     for hoja_w in hojas_func_list:
-        col_nombre, col_slider = st.columns([2, 3])
+        col_nombre, col_input = st.columns([2, 3])
         with col_nombre:
             st.markdown(f"<div style='padding-top:8px'>{hoja_w}</div>", unsafe_allow_html=True)
-        with col_slider:
-            pesos_hojas_func[hoja_w] = st.slider(
+        with col_input:
+            pesos_hojas_func[hoja_w] = st.number_input(
                 label=hoja_w,
                 min_value=0,
                 max_value=100,
+                value=st.session_state.get(f"peso_hoja_func_{hoja_w}", 100),
+                step=1,
                 key=f"peso_hoja_func_{hoja_w}",
                 label_visibility="collapsed"
             )
@@ -639,6 +694,7 @@ if st.session_state["archivos_cargados"]:
         st.switch_page("pages/detalle_hoja.py")
 
     st.markdown("#### Pesos por hoja no funcional")
+    st.caption("Rango: 0 a 100 — indica el peso porcentual de cada hoja en el total no funcional")
     hojas_nofunc_list = df_final_nf["Hoja"].tolist()
 
     for hoja_w in hojas_nofunc_list:
@@ -647,14 +703,16 @@ if st.session_state["archivos_cargados"]:
 
     pesos_hojas_nf = {}
     for hoja_w in hojas_nofunc_list:
-        col_nombre, col_slider = st.columns([2, 3])
+        col_nombre, col_input = st.columns([2, 3])
         with col_nombre:
             st.markdown(f"<div style='padding-top:8px'>{hoja_w}</div>", unsafe_allow_html=True)
-        with col_slider:
-            pesos_hojas_nf[hoja_w] = st.slider(
+        with col_input:
+            pesos_hojas_nf[hoja_w] = st.number_input(
                 label=hoja_w,
                 min_value=0,
                 max_value=100,
+                value=st.session_state.get(f"peso_hoja_nf_{hoja_w}", 100),
+                step=1,
                 key=f"peso_hoja_nf_{hoja_w}",
                 label_visibility="collapsed"
             )
@@ -799,8 +857,6 @@ if st.session_state["archivos_cargados"]:
         metadata_archivos=metadata_archivos,
     )
 
-    # Para F-Total y NF-Total sin calidad: usar el total ponderado si fue generado,
-    # si no, usar el promedio simple.
     if not analisis_con_calidad:
         df_f_total_export = st.session_state.get("df_total_func_ponderado", df_total)
         df_nf_total_export = st.session_state.get("df_total_nf_ponderado", df_total_nf)
