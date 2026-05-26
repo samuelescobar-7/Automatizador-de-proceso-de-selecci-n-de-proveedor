@@ -203,7 +203,39 @@ def analizar_hoja_experiencia_oferente(wb, proveedor):
 
 
 def analizar_hoja_alcance_servicios(wb, proveedor):
+    """
+    Lee hoja '6.' buscando SI/NO en col C desde fila 9.
+    Gatillo de fila: col C contiene SI o NO (normalizado) Y col B tiene texto (nombre del servicio).
+    No depende de que col B sea un número correlativo.
+    """
     hoja_nombre = next((s for s in wb.sheetnames if s.strip().startswith("6.")), None)
+    if hoja_nombre is None:
+        return pd.DataFrame([{"Respuesta": "", "Proveedor": proveedor}])
+    ws = wb[hoja_nombre]
+    data = []
+    for r in range(1, ws.max_row + 1):
+        val = ws.cell(r, 3).value
+        if val is None:
+            continue
+        val_norm = str(val).strip().upper()
+        if val_norm not in {"SI", "NO"}:
+            continue
+        # Col B debe tener el nombre del servicio (evita falsos positivos en filas vacías)
+        nombre = ws.cell(r, 2).value
+        if nombre is None:
+            continue
+        data.append({"Respuesta": val_norm, "Proveedor": proveedor})
+    if not data:
+        return pd.DataFrame([{"Respuesta": "", "Proveedor": proveedor}])
+    return pd.DataFrame(data)
+
+
+def analizar_hoja_metodologia(wb, proveedor):
+    """
+    Lee hoja '7.' buscando SI/NO en col C.
+    Misma lógica que alcance de servicios.
+    """
+    hoja_nombre = next((s for s in wb.sheetnames if s.strip().startswith("7.")), None)
     if hoja_nombre is None:
         return pd.DataFrame([{"Respuesta": "", "Proveedor": proveedor}])
     ws = wb[hoja_nombre]
@@ -524,6 +556,7 @@ if archivos and not st.session_state["archivos_cargados"]:
     data_experiencia = []
     data_experiencia_oferente = []
     data_alcance_servicios = []
+    data_metodologia = []
     metadata_archivos = []
     nombres_proveedores = []  # lista ordenada de todos los proveedores cargados
 
@@ -583,6 +616,9 @@ if archivos and not st.session_state["archivos_cargados"]:
         df_alcance = analizar_hoja_alcance_servicios(wb_exp, proveedor)
         if df_alcance is not None:
             data_alcance_servicios.append(df_alcance)
+        df_metodologia = analizar_hoja_metodologia(wb_exp, proveedor)
+        if df_metodologia is not None:
+            data_metodologia.append(df_metodologia)
 
     (df_final, df_total, df_final_k, df_total_k,
      df_puntaje, df_total_puntaje) = construir_tablas(
@@ -608,6 +644,7 @@ if archivos and not st.session_state["archivos_cargados"]:
         "data_experiencia": data_experiencia,
         "data_experiencia_oferente": data_experiencia_oferente,
         "data_alcance_servicios": data_alcance_servicios,
+        "data_metodologia": data_metodologia,
         "metadata_archivos": metadata_archivos,
         "nombres_proveedores": nombres_proveedores,
         "param_incluir_calidad": incluir_calidad,
@@ -1261,7 +1298,49 @@ if st.session_state["archivos_cargados"]:
         st.info("No se encontraron datos de alcance de servicios (hoja '6.').")
 
     st.markdown("#### Metodología Implementación")
-    # tabla próximamente
+    data_metodologia = st.session_state.get("data_metodologia", [])
+    if data_metodologia:
+        df_met_all = pd.concat(data_metodologia, ignore_index=True)
+        df_met_all = df_met_all[df_met_all["Respuesta"] != ""]
+
+        todos_provs_met = nombres_proveedores if nombres_proveedores else sorted(df_met_all["Proveedor"].unique())
+
+        conteo_met = (
+            df_met_all.groupby(["Proveedor", "Respuesta"]).size()
+            .unstack(fill_value=0)
+        )
+        for col in ["SI", "NO"]:
+            if col not in conteo_met.columns:
+                conteo_met[col] = 0
+        conteo_met = conteo_met[["SI", "NO"]].reindex(todos_provs_met, fill_value=0)
+        total_por_prov_met = conteo_met.sum(axis=1)
+
+        filas_met = []
+        for resp in ["SI", "NO"]:
+            fila = {"Respuesta": resp}
+            for prov in todos_provs_met:
+                total = total_por_prov_met[prov]
+                fila[prov] = f"{round(conteo_met.loc[prov, resp] / total * 100, 2):.2f}%" if total > 0 else "0.00%"
+            filas_met.append(fila)
+
+        st.dataframe(pd.DataFrame(filas_met), use_container_width=True, key="df_metodologia")
+
+        filas_met_raw = []
+        for resp in ["SI", "NO"]:
+            fila = {"Respuesta": resp}
+            for prov in todos_provs_met:
+                total = total_por_prov_met[prov]
+                fila[prov] = round(conteo_met.loc[prov, resp] / total * 100, 2) if total > 0 else 0.0
+            filas_met_raw.append(fila)
+
+        boton_descarga(
+            "⬇️ Descargar metodología implementación",
+            {"Metodología Implementación": pd.DataFrame(filas_met_raw)},
+            "metodologia_implementacion.xlsx",
+            "dl_metodologia"
+        )
+    else:
+        st.info("No se encontraron datos de metodología (hoja '7.').")
 
     st.markdown("#### Equipo Implementador")
     # tabla próximamente
@@ -1341,6 +1420,28 @@ if st.session_state["archivos_cargados"]:
                     _fila[_prov] = round(_conteo_alc.loc[_prov, _resp] / _t * 100, 2) if _t > 0 else 0.0
                 _filas_alc.append(_fila)
             pd.DataFrame(_filas_alc).to_excel(writer, index=False, sheet_name="Alcance de servicios")
+
+        if data_metodologia:
+            _met_all = pd.concat(data_metodologia, ignore_index=True)
+            _met_all = _met_all[_met_all["Respuesta"] != ""]
+            _provs_met = nombres_proveedores if nombres_proveedores else sorted(_met_all["Proveedor"].unique())
+            _conteo_met = (
+                _met_all.groupby(["Proveedor", "Respuesta"]).size()
+                .unstack(fill_value=0)
+            )
+            for _col in ["SI", "NO"]:
+                if _col not in _conteo_met.columns:
+                    _conteo_met[_col] = 0
+            _conteo_met = _conteo_met[["SI", "NO"]].reindex(_provs_met, fill_value=0)
+            _total_met = _conteo_met.sum(axis=1)
+            _filas_met = []
+            for _resp in ["SI", "NO"]:
+                _fila = {"Respuesta": _resp}
+                for _prov in _provs_met:
+                    _t = _total_met[_prov]
+                    _fila[_prov] = round(_conteo_met.loc[_prov, _resp] / _t * 100, 2) if _t > 0 else 0.0
+                _filas_met.append(_fila)
+            pd.DataFrame(_filas_met).to_excel(writer, index=False, sheet_name="Metodologia Implementacion")
 
         if data_experiencia_oferente:
             _df_of_all = pd.concat(data_experiencia_oferente, ignore_index=True)
