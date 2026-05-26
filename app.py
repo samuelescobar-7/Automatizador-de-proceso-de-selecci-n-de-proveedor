@@ -202,6 +202,28 @@ def analizar_hoja_experiencia_oferente(wb, proveedor):
     return pd.DataFrame(data)
 
 
+def analizar_hoja_alcance_servicios(wb, proveedor):
+    hoja_nombre = next((s for s in wb.sheetnames if s.strip().startswith("6.")), None)
+    if hoja_nombre is None:
+        return pd.DataFrame([{"Respuesta": "", "Proveedor": proveedor}])
+    ws = wb[hoja_nombre]
+    data = []
+    for r in range(1, ws.max_row + 1):
+        val = ws.cell(r, 3).value
+        if val is None:
+            continue
+        val_norm = str(val).strip().upper()
+        if val_norm not in {"SI", "NO"}:
+            continue
+        nombre = ws.cell(r, 2).value
+        if nombre is None:
+            continue
+        data.append({"Respuesta": val_norm, "Proveedor": proveedor})
+    if not data:
+        return pd.DataFrame([{"Respuesta": "", "Proveedor": proveedor}])
+    return pd.DataFrame(data)
+
+
 def construir_tablas(data, data_k, peso_total_cumplimiento, peso_total_calidad, incluir_calidad):
     df = pd.DataFrame(data)
     df_final = df.pivot_table(
@@ -501,10 +523,13 @@ if archivos and not st.session_state["archivos_cargados"]:
     detalles_globales_nf, detalles_globales_k_nf = {}, {}
     data_experiencia = []
     data_experiencia_oferente = []
+    data_alcance_servicios = []
     metadata_archivos = []
+    nombres_proveedores = []  # lista ordenada de todos los proveedores cargados
 
     for archivo in archivos:
         proveedor = Path(archivo.name).stem
+        nombres_proveedores.append(proveedor)
         archivo_bytes = archivo.getvalue()
         tamano_kb = round(len(archivo_bytes) / 1024, 2)
 
@@ -555,6 +580,9 @@ if archivos and not st.session_state["archivos_cargados"]:
         df_exp_oferente = analizar_hoja_experiencia_oferente(wb_exp, proveedor)
         if df_exp_oferente is not None:
             data_experiencia_oferente.append(df_exp_oferente)
+        df_alcance = analizar_hoja_alcance_servicios(wb_exp, proveedor)
+        if df_alcance is not None:
+            data_alcance_servicios.append(df_alcance)
 
     (df_final, df_total, df_final_k, df_total_k,
      df_puntaje, df_total_puntaje) = construir_tablas(
@@ -579,7 +607,9 @@ if archivos and not st.session_state["archivos_cargados"]:
         "detalles_globales_k_nf": detalles_globales_k_nf,
         "data_experiencia": data_experiencia,
         "data_experiencia_oferente": data_experiencia_oferente,
+        "data_alcance_servicios": data_alcance_servicios,
         "metadata_archivos": metadata_archivos,
+        "nombres_proveedores": nombres_proveedores,
         "param_incluir_calidad": incluir_calidad,
         "param_peso_col_f": peso_col_f,
         "param_peso_col_g": peso_col_g,
@@ -615,8 +645,10 @@ if st.session_state["archivos_cargados"]:
     detalles_globales_k_nf = st.session_state["detalles_globales_k_nf"]
     data_experiencia         = st.session_state["data_experiencia"]
     data_experiencia_oferente = st.session_state.get("data_experiencia_oferente", [])
+    data_alcance_servicios    = st.session_state.get("data_alcance_servicios", [])
     analisis_con_calidad   = st.session_state.get("analisis_con_calidad", False)
     metadata_archivos      = st.session_state.get("metadata_archivos", [])
+    nombres_proveedores    = st.session_state.get("nombres_proveedores", [])
 
     # ---- FUNCIONAL ----
     st.subheader("Cumplimiento funcional")
@@ -812,7 +844,6 @@ if st.session_state["archivos_cargados"]:
         df_exp_all = pd.concat(data_experiencia, ignore_index=True)
         todos_proveedores = list(df_exp_all["Proveedor"].unique())
 
-        # Pivot de sectores
         pivot_sector = (
             df_exp_all[df_exp_all["Sector/Industria"] != ""]
             .groupby(["Sector/Industria", "Proveedor"]).size()
@@ -823,7 +854,6 @@ if st.session_state["archivos_cargados"]:
 
         st.markdown("**Por Sector/Industria** — haz clic en una fila para desplegar los países")
 
-        # Construir datos JSON para la tabla interactiva
         import json
 
         sectores_data = []
@@ -941,7 +971,6 @@ if st.session_state["archivos_cargados"]:
   const tbody = document.getElementById("expBody");
 
   sectores.forEach(function(s, si) {{
-    // fila sector
     var tr = document.createElement("tr");
     tr.className = "sector-tr";
     tr.dataset.idx = si;
@@ -955,7 +984,6 @@ if st.session_state["archivos_cargados"]:
     tr.addEventListener("click", function() {{
       var arrow = document.getElementById(arrowId);
       var isOpen = tr.classList.contains("open");
-      // cerrar todos
       document.querySelectorAll(".sector-tr.open").forEach(function(el) {{
         el.classList.remove("open");
       }});
@@ -975,7 +1003,6 @@ if st.session_state["archivos_cargados"]:
     }});
     tbody.appendChild(tr);
 
-    // filas países
     s.paises.forEach(function(p) {{
       var trP = document.createElement("tr");
       trP.className = "pais-tr";
@@ -1175,8 +1202,63 @@ if st.session_state["archivos_cargados"]:
     else:
         st.info("No se encontraron datos de experiencia del oferente (hoja '5.').")
 
+    # ---- ALCANCE DE SERVICIOS ----
     st.markdown("#### Alcance de servicios")
-    # tabla próximamente
+    if data_alcance_servicios:
+        df_alc_all = pd.concat(data_alcance_servicios, ignore_index=True)
+        df_alc_all = df_alc_all[df_alc_all["Respuesta"] != ""]
+
+        # Todos los proveedores cargados, en orden de carga — incluye los que no
+        # tengan datos en hoja 6 (aparecerán con 0.00%)
+        todos_provs_alc = nombres_proveedores if nombres_proveedores else sorted(df_alc_all["Proveedor"].unique())
+
+        # Conteo de SI / NO por proveedor
+        conteo = (
+            df_alc_all.groupby(["Proveedor", "Respuesta"]).size()
+            .unstack(fill_value=0)
+        )
+        # Garantizar que existan ambas columnas aunque ningún proveedor haya respondido una de ellas
+        for col in ["SI", "NO"]:
+            if col not in conteo.columns:
+                conteo[col] = 0
+        conteo = conteo[["SI", "NO"]]
+
+        # Incluir en el índice todos los proveedores cargados (los ausentes quedan en 0)
+        conteo = conteo.reindex(todos_provs_alc, fill_value=0)
+        total_por_prov = conteo.sum(axis=1)
+
+        filas = []
+        for resp in ["SI", "NO"]:
+            fila = {"Respuesta": resp}
+            for prov in todos_provs_alc:
+                total = total_por_prov[prov]
+                if total > 0:
+                    pct = round(conteo.loc[prov, resp] / total * 100, 2)
+                else:
+                    pct = 0.0
+                fila[prov] = f"{pct:.2f}%"
+            filas.append(fila)
+
+        df_alcance_tabla = pd.DataFrame(filas)
+        st.dataframe(df_alcance_tabla, use_container_width=True, key="df_alcance_servicios")
+
+        # Versión sin formato % para descarga
+        filas_raw = []
+        for resp in ["SI", "NO"]:
+            fila = {"Respuesta": resp}
+            for prov in todos_provs_alc:
+                total = total_por_prov[prov]
+                fila[prov] = round(conteo.loc[prov, resp] / total * 100, 2) if total > 0 else 0.0
+            filas_raw.append(fila)
+        df_alcance_raw = pd.DataFrame(filas_raw)
+        boton_descarga(
+            "⬇️ Descargar alcance de servicios",
+            {"Alcance de servicios": df_alcance_raw},
+            "alcance_servicios.xlsx",
+            "dl_alcance_servicios"
+        )
+    else:
+        st.info("No se encontraron datos de alcance de servicios (hoja '6.').")
 
     st.markdown("#### Metodología Implementación")
     # tabla próximamente
@@ -1237,6 +1319,28 @@ if st.session_state["archivos_cargados"]:
             df_total_puntaje_nf.to_excel(writer, index=False, sheet_name="NF - Total puntaje")
         if data_experiencia:
             pivot_sector.to_excel(writer, index=False, sheet_name="Exp - Por sector")
+
+        if data_alcance_servicios:
+            _alc_all = pd.concat(data_alcance_servicios, ignore_index=True)
+            _alc_all = _alc_all[_alc_all["Respuesta"] != ""]
+            _provs_alc = nombres_proveedores if nombres_proveedores else sorted(_alc_all["Proveedor"].unique())
+            _conteo_alc = (
+                _alc_all.groupby(["Proveedor", "Respuesta"]).size()
+                .unstack(fill_value=0)
+            )
+            for _col in ["SI", "NO"]:
+                if _col not in _conteo_alc.columns:
+                    _conteo_alc[_col] = 0
+            _conteo_alc = _conteo_alc[["SI", "NO"]].reindex(_provs_alc, fill_value=0)
+            _total_alc = _conteo_alc.sum(axis=1)
+            _filas_alc = []
+            for _resp in ["SI", "NO"]:
+                _fila = {"Respuesta": _resp}
+                for _prov in _provs_alc:
+                    _t = _total_alc[_prov]
+                    _fila[_prov] = round(_conteo_alc.loc[_prov, _resp] / _t * 100, 2) if _t > 0 else 0.0
+                _filas_alc.append(_fila)
+            pd.DataFrame(_filas_alc).to_excel(writer, index=False, sheet_name="Alcance de servicios")
 
         if data_experiencia_oferente:
             _df_of_all = pd.concat(data_experiencia_oferente, ignore_index=True)
