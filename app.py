@@ -203,11 +203,6 @@ def analizar_hoja_experiencia_oferente(wb, proveedor):
 
 
 def analizar_hoja_alcance_servicios(wb, proveedor):
-    """
-    Lee hoja '6.' buscando SI/NO en col C desde fila 9.
-    Gatillo de fila: col C contiene SI o NO (normalizado) Y col B tiene texto (nombre del servicio).
-    No depende de que col B sea un número correlativo.
-    """
     hoja_nombre = next((s for s in wb.sheetnames if s.strip().startswith("6.")), None)
     if hoja_nombre is None:
         return pd.DataFrame([{"Respuesta": "", "Proveedor": proveedor}])
@@ -220,7 +215,6 @@ def analizar_hoja_alcance_servicios(wb, proveedor):
         val_norm = str(val).strip().upper()
         if val_norm not in {"SI", "NO"}:
             continue
-        # Col B debe tener el nombre del servicio (evita falsos positivos en filas vacías)
         nombre = ws.cell(r, 2).value
         if nombre is None:
             continue
@@ -231,10 +225,6 @@ def analizar_hoja_alcance_servicios(wb, proveedor):
 
 
 def analizar_hoja_metodologia(wb, proveedor):
-    """
-    Lee hoja '7.' buscando SI/NO en col C.
-    Misma lógica que alcance de servicios.
-    """
     hoja_nombre = next((s for s in wb.sheetnames if s.strip().startswith("7.")), None)
     if hoja_nombre is None:
         return pd.DataFrame([{"Respuesta": "", "Proveedor": proveedor}])
@@ -452,88 +442,105 @@ with st.sidebar:
     st.divider()
 
     st.header("Pesos cumplimiento funcional")
-    st.caption("Todos los pesos son valores decimales entre 0.0 y 1.0")
+    st.caption("Todos los pesos se ingresan de 0 a 100 (se convierten internamente a escala 0.0–1.0)")
 
-    peso_col_f = st.number_input(
-        "Peso máximo columna F (cubrimiento) — rango: 0.0 a 1.0",
-        min_value=0.0, max_value=1.0, value=1.0, step=0.05, format="%.2f",
+    # ── Pesos de columnas F y G (0–100) ──────────────────────────────────────
+    peso_col_f_pct = st.number_input(
+        "Peso máximo columna F (cubrimiento) — rango: 0 a 100",
+        min_value=0, max_value=100, value=100, step=5,
         key="ni_peso_col_f"
     )
-    peso_col_g = st.number_input(
-        "Peso máximo columna G (inclusión) — rango: 0.0 a 1.0",
-        min_value=0.0, max_value=1.0, value=1.0, step=0.05, format="%.2f",
+    peso_col_g_pct = st.number_input(
+        "Peso máximo columna G (inclusión) — rango: 0 a 100",
+        min_value=0, max_value=100, value=100, step=5,
         key="ni_peso_col_g"
     )
 
+    # Conversión interna a decimal
+    peso_col_f = peso_col_f_pct / 100
+    peso_col_g = peso_col_g_pct / 100
+
+    # ── Proporciones del peso máximo col F (0–100) ───────────────────────────
     st.markdown("**Pesos cubrimiento (proporción del peso máximo col F):**")
-    st.caption("Cada valor indica qué fracción del peso máximo de col F se asigna a esa respuesta. Rango: 0.0 a 1.0")
+    st.caption("Cada valor indica qué porcentaje del peso máximo de col F se asigna a esa respuesta. Rango: 0 a 100")
 
     _si_pct = st.number_input(
-        "SI (columna F) — rango: 0.0 a 1.0, pred: 1.0",
-        min_value=0.0, max_value=1.0, value=1.0, step=0.05, format="%.2f",
+        "SI (columna F) — rango: 0 a 100, pred: 100",
+        min_value=0, max_value=100, value=100, step=5,
         key="ni_si_pct"
     )
     _desarrollo_pct = st.number_input(
-        "DESARROLLO (columna F) — rango: 0.0 a 1.0, pred: 0.5",
-        min_value=0.0, max_value=1.0, value=0.5, step=0.05, format="%.2f",
+        "DESARROLLO (columna F) — rango: 0 a 100, pred: 50",
+        min_value=0, max_value=100, value=50, step=5,
         key="ni_desarrollo_pct"
     )
     _tercero_pct = st.number_input(
-        "TERCERO (columna F) — rango: 0.0 a 1.0, pred: 0.5",
-        min_value=0.0, max_value=1.0, value=0.5, step=0.05, format="%.2f",
+        "TERCERO (columna F) — rango: 0 a 100, pred: 50",
+        min_value=0, max_value=100, value=50, step=5,
         key="ni_tercero_pct"
     )
     _no_pct = st.number_input(
-        "NO (columna F) — rango: 0.0 a 1.0, pred: 0.0",
-        min_value=0.0, max_value=1.0, value=0.0, step=0.05, format="%.2f",
+        "NO (columna F) — rango: 0 a 100, pred: 0",
+        min_value=0, max_value=100, value=0, step=5,
         key="ni_no_pct"
     )
 
+    # Conversión interna a decimal y aplicación del peso máximo
     pesos_f = {
-        "SI":          _si_pct         * peso_col_f,
-        "DESARROLLO":  _desarrollo_pct * peso_col_f,
-        "TERCERO":     _tercero_pct    * peso_col_f,
-        "NO":          _no_pct         * peso_col_f,
+        "SI":         (_si_pct         / 100) * peso_col_f,
+        "DESARROLLO": (_desarrollo_pct / 100) * peso_col_f,
+        "TERCERO":    (_tercero_pct    / 100) * peso_col_f,
+        "NO":         (_no_pct         / 100) * peso_col_f,
         "VACIO": 0.0
     }
 
     if incluir_calidad:
         st.divider()
         st.markdown("**Pesos calidad (columna K):**")
-        st.caption("Rango: 0.0 a 1.0")
+        st.caption("Rango: 0 a 100")
 
+        _k_completo = st.number_input(
+            "Completo (columna K) — rango: 0 a 100, pred: 100",
+            min_value=0, max_value=100, value=100, step=5,
+            key="ni_k_completo"
+        )
+        _k_parcial = st.number_input(
+            "Parcial (columna K) — rango: 0 a 100, pred: 50",
+            min_value=0, max_value=100, value=50, step=5,
+            key="ni_k_parcial"
+        )
+        _k_incompleto = st.number_input(
+            "Incompleto (columna K) — rango: 0 a 100, pred: 0",
+            min_value=0, max_value=100, value=0, step=5,
+            key="ni_k_incompleto"
+        )
+
+        # Conversión interna a decimal
         pesos_k = {
-            "COMPLETO": st.number_input(
-                "Completo (columna K) — rango: 0.0 a 1.0, pred: 1.0",
-                min_value=0.0, max_value=1.0, value=1.0, step=0.05, format="%.2f",
-                key="ni_k_completo"
-            ),
-            "PARCIAL": st.number_input(
-                "Parcial (columna K) — rango: 0.0 a 1.0, pred: 0.5",
-                min_value=0.0, max_value=1.0, value=0.5, step=0.05, format="%.2f",
-                key="ni_k_parcial"
-            ),
-            "INCOMPLETO": st.number_input(
-                "Incompleto (columna K) — rango: 0.0 a 1.0, pred: 0.0",
-                min_value=0.0, max_value=1.0, value=0.0, step=0.05, format="%.2f",
-                key="ni_k_incompleto"
-            ),
+            "COMPLETO":   _k_completo   / 100,
+            "PARCIAL":    _k_parcial    / 100,
+            "INCOMPLETO": _k_incompleto / 100,
             "VACIO": 0.0
         }
 
         st.markdown("**Pesos totales del puntaje combinado:**")
-        st.caption("Rango: 0.0 a 1.0")
+        st.caption("Rango: 0 a 100")
 
-        peso_total_cumplimiento = st.number_input(
-            "Peso total cumplimiento — rango: 0.0 a 1.0, pred: 1.0",
-            min_value=0.0, max_value=1.0, value=1.0, step=0.05, format="%.2f",
+        _peso_total_cumplimiento_pct = st.number_input(
+            "Peso total cumplimiento — rango: 0 a 100, pred: 100",
+            min_value=0, max_value=100, value=100, step=5,
             key="ni_peso_total_cum"
         )
-        peso_total_calidad = st.number_input(
-            "Peso total calidad — rango: 0.0 a 1.0, pred: 1.0",
-            min_value=0.0, max_value=1.0, value=1.0, step=0.05, format="%.2f",
+        _peso_total_calidad_pct = st.number_input(
+            "Peso total calidad — rango: 0 a 100, pred: 100",
+            min_value=0, max_value=100, value=100, step=5,
             key="ni_peso_total_cal"
         )
+
+        # Conversión interna a decimal
+        peso_total_cumplimiento = _peso_total_cumplimiento_pct / 100
+        peso_total_calidad      = _peso_total_calidad_pct      / 100
+
     else:
         pesos_k = {"COMPLETO": 1.0, "PARCIAL": 0.5, "INCOMPLETO": 0.0, "VACIO": 0.0}
         peso_total_cumplimiento = 1.0
@@ -558,7 +565,7 @@ if archivos and not st.session_state["archivos_cargados"]:
     data_alcance_servicios = []
     data_metodologia = []
     metadata_archivos = []
-    nombres_proveedores = []  # lista ordenada de todos los proveedores cargados
+    nombres_proveedores = []
 
     for archivo in archivos:
         proveedor = Path(archivo.name).stem
@@ -1245,22 +1252,16 @@ if st.session_state["archivos_cargados"]:
         df_alc_all = pd.concat(data_alcance_servicios, ignore_index=True)
         df_alc_all = df_alc_all[df_alc_all["Respuesta"] != ""]
 
-        # Todos los proveedores cargados, en orden de carga — incluye los que no
-        # tengan datos en hoja 6 (aparecerán con 0.00%)
         todos_provs_alc = nombres_proveedores if nombres_proveedores else sorted(df_alc_all["Proveedor"].unique())
 
-        # Conteo de SI / NO por proveedor
         conteo = (
             df_alc_all.groupby(["Proveedor", "Respuesta"]).size()
             .unstack(fill_value=0)
         )
-        # Garantizar que existan ambas columnas aunque ningún proveedor haya respondido una de ellas
         for col in ["SI", "NO"]:
             if col not in conteo.columns:
                 conteo[col] = 0
         conteo = conteo[["SI", "NO"]]
-
-        # Incluir en el índice todos los proveedores cargados (los ausentes quedan en 0)
         conteo = conteo.reindex(todos_provs_alc, fill_value=0)
         total_por_prov = conteo.sum(axis=1)
 
@@ -1279,7 +1280,6 @@ if st.session_state["archivos_cargados"]:
         df_alcance_tabla = pd.DataFrame(filas)
         st.dataframe(df_alcance_tabla, use_container_width=True, key="df_alcance_servicios")
 
-        # Versión sin formato % para descarga
         filas_raw = []
         for resp in ["SI", "NO"]:
             fila = {"Respuesta": resp}
