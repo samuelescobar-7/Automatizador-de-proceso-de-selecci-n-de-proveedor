@@ -5,6 +5,8 @@ from tempfile import NamedTemporaryFile
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+import math
+
 import openpyxl
 import pandas as pd
 import streamlit as st
@@ -575,7 +577,7 @@ if archivos and not st.session_state["archivos_cargados"]:
         proveedor = Path(archivo.name).stem
         nombres_proveedores.append(proveedor)
         archivo_bytes = archivo.getvalue()
-        tamano_kb = round(len(archivo_bytes) / 1024, 2)
+        tamano_kb = math.ceil(len(archivo_bytes) / 1024)
 
         wb_meta = openpyxl.load_workbook(BytesIO(archivo_bytes), data_only=True)
         fecha_modificacion = obtener_fecha_modificacion(wb_meta)
