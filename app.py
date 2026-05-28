@@ -328,6 +328,10 @@ def construir_hoja_info_analisis(
     pesos_hojas_nf,
     metadata_archivos,
 ):
+    """
+    Todos los argumentos de peso se reciben tal como los ingresó el usuario
+    (escala 0–100), sin ninguna conversión ni multiplicación.
+    """
     bloques = []
 
     df_fecha = pd.DataFrame([{
@@ -345,7 +349,7 @@ def construir_hoja_info_analisis(
 
     pesos_f_rows = [
         {"Respuesta": k, "Peso aplicado": v}
-        for k, v in pesos_f.items() if k != "VACIO"
+        for k, v in pesos_f.items()
     ]
     df_pesos_f = pd.DataFrame(pesos_f_rows)
     bloques.append(("Pesos cubrimiento (columna F)", df_pesos_f))
@@ -353,7 +357,7 @@ def construir_hoja_info_analisis(
     if incluir_calidad:
         pesos_k_rows = [
             {"Respuesta": k, "Peso aplicado": v}
-            for k, v in pesos_k.items() if k != "VACIO"
+            for k, v in pesos_k.items()
         ]
         df_pesos_k = pd.DataFrame(pesos_k_rows)
         bloques.append(("Pesos calidad (columna K)", df_pesos_k))
@@ -655,12 +659,22 @@ if archivos and not st.session_state["archivos_cargados"]:
         "metadata_archivos": metadata_archivos,
         "nombres_proveedores": nombres_proveedores,
         "param_incluir_calidad": incluir_calidad,
-        "param_peso_col_f": peso_col_f,
-        "param_peso_col_g": peso_col_g,
-        "param_pesos_f": dict(pesos_f),
-        "param_pesos_k": dict(pesos_k),
-        "param_peso_total_cumplimiento": peso_total_cumplimiento,
-        "param_peso_total_calidad": peso_total_calidad,
+        # Valores tal como los ingresó el usuario (0–100), solo para el reporte
+        "param_peso_col_f_raw": peso_col_f_pct,
+        "param_peso_col_g_raw": peso_col_g_pct,
+        "param_pesos_f_raw": {
+            "SI":         _si_pct,
+            "DESARROLLO": _desarrollo_pct,
+            "TERCERO":    _tercero_pct,
+            "NO":         _no_pct,
+        },
+        "param_pesos_k_raw": {
+            "COMPLETO":   _k_completo   if incluir_calidad else 100,
+            "PARCIAL":    _k_parcial    if incluir_calidad else 50,
+            "INCOMPLETO": _k_incompleto if incluir_calidad else 0,
+        },
+        "param_peso_total_cumplimiento_raw": _peso_total_cumplimiento_pct if incluir_calidad else 100,
+        "param_peso_total_calidad_raw":      _peso_total_calidad_pct      if incluir_calidad else 100,
         "archivos_cargados": True,
         "analisis_con_calidad": incluir_calidad
     })
@@ -1362,12 +1376,12 @@ if st.session_state["archivos_cargados"]:
     bloques_info = construir_hoja_info_analisis(
         fecha_generacion=fecha_generacion,
         incluir_calidad=st.session_state.get("param_incluir_calidad", analisis_con_calidad),
-        peso_col_f=st.session_state.get("param_peso_col_f", peso_col_f),
-        peso_col_g=st.session_state.get("param_peso_col_g", peso_col_g),
-        pesos_f=st.session_state.get("param_pesos_f", pesos_f),
-        pesos_k=st.session_state.get("param_pesos_k", pesos_k),
-        peso_total_cumplimiento=st.session_state.get("param_peso_total_cumplimiento", peso_total_cumplimiento),
-        peso_total_calidad=st.session_state.get("param_peso_total_calidad", peso_total_calidad),
+        peso_col_f=st.session_state.get("param_peso_col_f_raw", 100),
+        peso_col_g=st.session_state.get("param_peso_col_g_raw", 100),
+        pesos_f=st.session_state.get("param_pesos_f_raw", {"SI": 100, "DESARROLLO": 50, "TERCERO": 50, "NO": 0}),
+        pesos_k=st.session_state.get("param_pesos_k_raw", {"COMPLETO": 100, "PARCIAL": 50, "INCOMPLETO": 0}),
+        peso_total_cumplimiento=st.session_state.get("param_peso_total_cumplimiento_raw", 100),
+        peso_total_calidad=st.session_state.get("param_peso_total_calidad_raw", 100),
         pesos_hojas_func=pesos_hojas_func_reporte,
         pesos_hojas_nf=pesos_hojas_nf_reporte,
         metadata_archivos=metadata_archivos,
