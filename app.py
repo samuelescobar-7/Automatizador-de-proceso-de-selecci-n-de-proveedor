@@ -306,12 +306,28 @@ def boton_descarga(label, dfs: dict, file_name: str, key: str):
     )
 
 
-def obtener_fecha_modificacion(wb):
+def obtener_fecha_modificacion(archivo_bytes):
+    """
+    Lee <dcterms:modified> directamente del XML dentro del ZIP del .xlsx,
+    sin pasar por openpyxl, para evitar que load_workbook pise el metadato.
+    Este es el mismo valor que muestra Excel en Archivo > Información >
+    Fechas relacionadas > Última modificación.
+    """
+    import zipfile
+    import xml.etree.ElementTree as ET
     try:
-        modified = wb.properties.modified
-        if modified:
-            modified_local = modified.replace(tzinfo=ZoneInfo("UTC")).astimezone(ZoneInfo("America/Bogota"))
-            return modified_local.strftime("%Y-%m-%d %H:%M:%S")
+        with zipfile.ZipFile(BytesIO(archivo_bytes)) as z:
+            with z.open("docProps/core.xml") as f:
+                tree = ET.parse(f)
+                root = tree.getroot()
+                # Namespace de dcterms
+                ns = {"dcterms": "http://purl.org/dc/terms/"}
+                modified_el = root.find("dcterms:modified", ns)
+                if modified_el is not None and modified_el.text:
+                    # Formato ISO 8601: 2024-05-29T15:00:00Z
+                    dt = datetime.fromisoformat(modified_el.text.rstrip("Z")).replace(tzinfo=ZoneInfo("UTC"))
+                    dt_local = dt.astimezone(ZoneInfo("America/Bogota"))
+                    return dt_local.strftime("%Y-%m-%d %H:%M:%S")
     except Exception:
         pass
     return "No disponible"
@@ -579,8 +595,7 @@ if archivos and not st.session_state["archivos_cargados"]:
         archivo_bytes = archivo.getvalue()
         tamano_kb = math.ceil(len(archivo_bytes) / 1024)
 
-        wb_meta = openpyxl.load_workbook(BytesIO(archivo_bytes), data_only=True)
-        fecha_modificacion = obtener_fecha_modificacion(wb_meta)
+        fecha_modificacion = obtener_fecha_modificacion(archivo_bytes)
 
         metadata_archivos.append({
             "Nombre del archivo": archivo.name,
