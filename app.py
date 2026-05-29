@@ -310,24 +310,54 @@ def obtener_fecha_modificacion(archivo_bytes):
     """
     Lee <dcterms:modified> directamente del XML dentro del ZIP del .xlsx,
     sin pasar por openpyxl, para evitar que load_workbook pise el metadato.
-    Este es el mismo valor que muestra Excel en Archivo > Información >
-    Fechas relacionadas > Última modificación.
+    Soporta múltiples formatos de fecha que distintas herramientas pueden escribir.
     """
     import zipfile
     import xml.etree.ElementTree as ET
+    import re as _re
+
     try:
         with zipfile.ZipFile(BytesIO(archivo_bytes)) as z:
             with z.open("docProps/core.xml") as f:
                 tree = ET.parse(f)
                 root = tree.getroot()
-                # Namespace de dcterms
                 ns = {"dcterms": "http://purl.org/dc/terms/"}
                 modified_el = root.find("dcterms:modified", ns)
-                if modified_el is not None and modified_el.text:
-                    # Formato ISO 8601: 2024-05-29T15:00:00Z
-                    dt = datetime.fromisoformat(modified_el.text.rstrip("Z")).replace(tzinfo=ZoneInfo("UTC"))
+                if modified_el is None or not modified_el.text:
+                    return "No disponible"
+
+                raw = modified_el.text.strip()
+
+                # Intentar múltiples formatos
+                formatos = [
+                    "%Y-%m-%dT%H:%M:%SZ",   # 2024-05-29T15:00:00Z
+                    "%Y-%m-%dT%H:%M:%S",    # 2024-05-29T15:00:00
+                    "%Y-%m-%d %H:%M:%S",    # 2024-05-29 15:00:00
+                    "%Y-%m-%dT%H:%M",       # 2024-05-29T15:00
+                    "%Y-%m-%d",             # 2024-05-29
+                ]
+                dt = None
+                for fmt in formatos:
+                    try:
+                        dt = datetime.strptime(raw, fmt).replace(tzinfo=ZoneInfo("UTC"))
+                        break
+                    except ValueError:
+                        continue
+
+                # Último intento: fromisoformat limpiando la Z y offset
+                if dt is None:
+                    try:
+                        clean = _re.sub(r"Z$", "+00:00", raw)
+                        dt = datetime.fromisoformat(clean)
+                        if dt.tzinfo is None:
+                            dt = dt.replace(tzinfo=ZoneInfo("UTC"))
+                    except ValueError:
+                        pass
+
+                if dt is not None:
                     dt_local = dt.astimezone(ZoneInfo("America/Bogota"))
                     return dt_local.strftime("%Y-%m-%d %H:%M:%S")
+
     except Exception:
         pass
     return "No disponible"
