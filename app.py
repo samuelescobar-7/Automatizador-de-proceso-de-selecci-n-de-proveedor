@@ -608,6 +608,15 @@ with st.sidebar:
     )
     peso_alcance = _peso_alcance_pct / 100
 
+    st.markdown("**Peso metodología:**")
+    st.caption("Rango: 0 a 100 — se aplica multiplicando el porcentaje de SI en la tabla de metodología implementación")
+    _peso_metodologia_pct = st.number_input(
+        "Peso metodología — rango: 0 a 100, pred: 100",
+        min_value=0, max_value=100, value=100, step=5,
+        key="ni_peso_metodologia"
+    )
+    peso_metodologia = _peso_metodologia_pct / 100
+
 archivos = st.file_uploader("Sube archivos Excel", type=["xlsx"], accept_multiple_files=True)
 
 if "archivos_cargados" not in st.session_state:
@@ -735,6 +744,7 @@ if archivos and not st.session_state["archivos_cargados"]:
         "archivos_cargados": True,
         "analisis_con_calidad": incluir_calidad,
         "param_peso_alcance_raw": _peso_alcance_pct,
+        "param_peso_metodologia_raw": _peso_metodologia_pct,
     })
 
 
@@ -1392,22 +1402,31 @@ if st.session_state["archivos_cargados"]:
         conteo_met = conteo_met[["SI", "NO"]].reindex(todos_provs_met, fill_value=0)
         total_por_prov_met = conteo_met.sum(axis=1)
 
+        # Peso metodología: se aplica solo a la fila SI (multiplicación)
+        _pm = st.session_state.get("param_peso_metodologia_raw", _peso_metodologia_pct) / 100
+
+        # ── Solo fila SI (fila NO eliminada) ──────────────────────────────────
         filas_met = []
-        for resp in ["SI", "NO"]:
+        for resp in ["SI"]:
             fila = {"Respuesta": resp}
             for prov in todos_provs_met:
                 total = total_por_prov_met[prov]
-                fila[prov] = f"{round(conteo_met.loc[prov, resp] / total * 100, 2):.2f}%" if total > 0 else "0.00%"
+                pct = round(conteo_met.loc[prov, resp] / total * 100, 2) if total > 0 else 0.0
+                pct = round(pct * _pm, 2)
+                fila[prov] = f"{pct:.2f}%"
             filas_met.append(fila)
 
         st.dataframe(pd.DataFrame(filas_met), use_container_width=True, key="df_metodologia")
 
+        # ── Solo fila SI para la descarga individual ───────────────────────────
         filas_met_raw = []
-        for resp in ["SI", "NO"]:
+        for resp in ["SI"]:
             fila = {"Respuesta": resp}
             for prov in todos_provs_met:
                 total = total_por_prov_met[prov]
-                fila[prov] = round(conteo_met.loc[prov, resp] / total * 100, 2) if total > 0 else 0.0
+                pct = round(conteo_met.loc[prov, resp] / total * 100, 2) if total > 0 else 0.0
+                pct = round(pct * _pm, 2)
+                fila[prov] = pct
             filas_met_raw.append(fila)
 
         boton_descarga(
@@ -1513,12 +1532,14 @@ if st.session_state["archivos_cargados"]:
                     _conteo_met[_col] = 0
             _conteo_met = _conteo_met[["SI", "NO"]].reindex(_provs_met, fill_value=0)
             _total_met = _conteo_met.sum(axis=1)
+            # ── Solo fila SI en el reporte completo Excel ──────────────────────
             _filas_met = []
-            for _resp in ["SI", "NO"]:
+            for _resp in ["SI"]:
                 _fila = {"Respuesta": _resp}
                 for _prov in _provs_met:
                     _t = _total_met[_prov]
-                    _fila[_prov] = round(_conteo_met.loc[_prov, _resp] / _t * 100, 2) if _t > 0 else 0.0
+                    _pct = round(_conteo_met.loc[_prov, _resp] / _t * 100, 2) if _t > 0 else 0.0
+                    _fila[_prov] = round(_pct * (_peso_metodologia_pct / 100), 2)
                 _filas_met.append(_fila)
             pd.DataFrame(_filas_met).to_excel(writer, index=False, sheet_name="Metodologia Implementacion")
 
