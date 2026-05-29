@@ -368,8 +368,8 @@ def construir_hoja_info_analisis(
     pesos_hojas_func,
     pesos_hojas_nf,
     metadata_archivos,
-    peso_alcance,       # ← NUEVO
-    peso_metodologia,   # ← NUEVO
+    peso_alcance,
+    peso_metodologia,
 ):
     bloques = []
 
@@ -421,13 +421,11 @@ def construir_hoja_info_analisis(
         ])
         bloques.append(("Pesos por hoja no funcional", df_ph_nf))
 
-    # ── NUEVO: bloque alcance y metodología ──────────────────────────────────
     df_pesos_adicionales = pd.DataFrame([
         {"Parámetro": "Peso alcance",      "Valor": peso_alcance},
         {"Parámetro": "Peso metodología",  "Valor": peso_metodologia},
     ])
     bloques.append(("Pesos alcance y metodología", df_pesos_adicionales))
-    # ─────────────────────────────────────────────────────────────────────────
 
     if metadata_archivos:
         df_archivos = pd.DataFrame(metadata_archivos)
@@ -480,8 +478,6 @@ if st.sidebar.button("Reiniciar análisis"):
     st.rerun()
 
 with st.sidebar:
-    # Inicializar valores por defecto ANTES de renderizar widgets.
-    # setdefault solo escribe si la clave NO existe, preservando cambios del usuario.
     st.session_state.setdefault("incluir_calidad", False)
     st.session_state.setdefault("toggle_calidad", False)
     st.session_state.setdefault("ni_peso_col_f", 100)
@@ -1563,8 +1559,8 @@ if st.session_state["archivos_cargados"]:
         pesos_hojas_func=pesos_hojas_func_reporte,
         pesos_hojas_nf=pesos_hojas_nf_reporte,
         metadata_archivos=metadata_archivos,
-        peso_alcance=st.session_state.get("param_peso_alcance_raw", 100),          # ← NUEVO
-        peso_metodologia=st.session_state.get("param_peso_metodologia_raw", 100),  # ← NUEVO
+        peso_alcance=st.session_state.get("param_peso_alcance_raw", 100),
+        peso_metodologia=st.session_state.get("param_peso_metodologia_raw", 100),
     )
 
     if not analisis_con_calidad:
@@ -1576,6 +1572,34 @@ if st.session_state["archivos_cargados"]:
 
     buffer = BytesIO()
     with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+
+        # ── Detalle por hoja FUNCIONAL (antes de F - Comparativo) ──────────
+        for hoja_det, lista_dfs in detalles_globales.items():
+            df_det = pd.concat(lista_dfs)
+            df_det["Cumplimiento_%"] = df_det["Peso_Total"] * 100
+            df_pivot_det = df_det.pivot_table(
+                index="Requerimiento",
+                columns="Proveedor",
+                values="Cumplimiento_%",
+                aggfunc="first"
+            ).fillna(0).reset_index()
+            sheet_name = f"Detalle de la hoja {hoja_det}"[:31]
+            df_pivot_det.to_excel(writer, index=False, sheet_name=sheet_name)
+
+        # ── Detalle por hoja NO FUNCIONAL (antes de F - Comparativo) ───────
+        for hoja_det, lista_dfs in detalles_globales_nf.items():
+            df_det = pd.concat(lista_dfs)
+            df_det["Cumplimiento_%"] = df_det["Peso_Total"] * 100
+            df_pivot_det = df_det.pivot_table(
+                index="Requerimiento",
+                columns="Proveedor",
+                values="Cumplimiento_%",
+                aggfunc="first"
+            ).fillna(0).reset_index()
+            sheet_name = f"Detalle de la hoja {hoja_det}"[:31]
+            df_pivot_det.to_excel(writer, index=False, sheet_name=sheet_name)
+
+        # ── Resto del reporte ───────────────────────────────────────────────
         df_final.to_excel(writer, index=False, sheet_name="F - Comparativo")
         df_f_total_export.to_excel(writer, index=False, sheet_name="F - Total")
         if analisis_con_calidad and df_final_k is not None:
