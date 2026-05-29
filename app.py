@@ -317,6 +317,42 @@ def analizar_hoja_alcance_servicios(wb, proveedor):
     return pd.DataFrame(data)
 
 
+def analizar_hoja_alcance_servicios_raw(wb, proveedor):
+    """
+    Extrae la tabla completa de la hoja '6. Alcance Servicios'
+    con las columnas B, C y D a partir de la fila 6.
+    Agrega una columna 'Proveedor' con el nombre del archivo.
+    """
+    COLUMNAS = [
+        "Servicio",
+        "Incluido (SI/NO)",
+        "Explicación o Descripción Adicional",
+    ]
+    # Columnas B=2, C=3, D=4 (1-indexed en openpyxl)
+    COL_INICIO = 2
+    COL_FIN = 4
+
+    hoja_nombre = next((s for s in wb.sheetnames if s.strip().startswith("6.")), None)
+    if hoja_nombre is None:
+        return pd.DataFrame(columns=["Proveedor"] + COLUMNAS)
+
+    ws = wb[hoja_nombre]
+    data = []
+    for r in range(6, ws.max_row + 1):
+        valores = [ws.cell(r, c).value for c in range(COL_INICIO, COL_FIN + 1)]
+        # Saltar filas completamente vacías
+        if all(v is None for v in valores):
+            continue
+        fila = {"Proveedor": proveedor}
+        for col_name, val in zip(COLUMNAS, valores):
+            fila[col_name] = str(val).strip() if val is not None else ""
+        data.append(fila)
+
+    if not data:
+        return pd.DataFrame(columns=["Proveedor"] + COLUMNAS)
+    return pd.DataFrame(data)[["Proveedor"] + COLUMNAS]
+
+
 def analizar_hoja_metodologia(wb, proveedor):
     hoja_nombre = next((s for s in wb.sheetnames if s.strip().startswith("7.")), None)
     if hoja_nombre is None:
@@ -730,6 +766,7 @@ if archivos and not st.session_state["archivos_cargados"]:
     data_experiencia_oferente = []
     data_experiencia_oferente_raw = [] # ← tabla completa hoja 5
     data_alcance_servicios = []
+    data_alcance_servicios_raw = []    # ← tabla completa hoja 6
     data_metodologia = []
     metadata_archivos = []
     nombres_proveedores = []
@@ -800,6 +837,11 @@ if archivos and not st.session_state["archivos_cargados"]:
         df_alcance = analizar_hoja_alcance_servicios(wb_exp, proveedor)
         if df_alcance is not None:
             data_alcance_servicios.append(df_alcance)
+
+        # ← tabla raw completa de hoja 6
+        df_alcance_raw_completo = analizar_hoja_alcance_servicios_raw(wb_exp, proveedor)
+        if df_alcance_raw_completo is not None and not df_alcance_raw_completo.empty:
+            data_alcance_servicios_raw.append(df_alcance_raw_completo)
         df_metodologia = analizar_hoja_metodologia(wb_exp, proveedor)
         if df_metodologia is not None:
             data_metodologia.append(df_metodologia)
@@ -830,6 +872,7 @@ if archivos and not st.session_state["archivos_cargados"]:
         "data_experiencia_oferente": data_experiencia_oferente,
         "data_experiencia_oferente_raw": data_experiencia_oferente_raw,  # ← tabla completa hoja 5
         "data_alcance_servicios": data_alcance_servicios,
+        "data_alcance_servicios_raw": data_alcance_servicios_raw,  # ← tabla completa hoja 6
         "data_metodologia": data_metodologia,
         "metadata_archivos": metadata_archivos,
         "nombres_proveedores": nombres_proveedores,
@@ -974,6 +1017,7 @@ if st.session_state["archivos_cargados"]:
     data_experiencia_oferente = st.session_state.get("data_experiencia_oferente", [])
     data_experiencia_oferente_raw = st.session_state.get("data_experiencia_oferente_raw", [])  # ← tabla completa hoja 5
     data_alcance_servicios    = st.session_state.get("data_alcance_servicios", [])
+    data_alcance_servicios_raw = st.session_state.get("data_alcance_servicios_raw", [])  # ← tabla completa hoja 6
     analisis_con_calidad   = st.session_state.get("analisis_con_calidad", False)
     metadata_archivos      = st.session_state.get("metadata_archivos", [])
     nombres_proveedores    = st.session_state.get("nombres_proveedores", [])
@@ -1567,6 +1611,23 @@ if st.session_state["archivos_cargados"]:
 
     # ---- ALCANCE DE SERVICIOS ----
     st.markdown("#### Alcance de servicios")
+
+    # ── Tabla completa alcance de servicios ─────────────────────────────────
+    st.markdown("##### Tabla completa")
+    if data_alcance_servicios_raw:
+        df_alc_raw_all = pd.concat(data_alcance_servicios_raw, ignore_index=True)
+        st.dataframe(df_alc_raw_all, use_container_width=True, key="df_alcance_raw_completo")
+        boton_descarga(
+            "⬇️ Descargar tabla completa alcance de servicios",
+            {"Alcance de servicios completo": df_alc_raw_all},
+            "alcance_servicios_completo.xlsx",
+            "dl_alcance_raw_completo"
+        )
+    else:
+        st.info("No se encontraron datos de alcance de servicios (hoja '6.').")
+    # ── FIN tabla completa ───────────────────────────────────────────────────
+
+    st.markdown("##### Resumen ponderado")
     if data_alcance_servicios:
         df_alc_all = pd.concat(data_alcance_servicios, ignore_index=True)
         df_alc_all = df_alc_all[df_alc_all["Respuesta"] != ""]
@@ -1783,6 +1844,10 @@ if st.session_state["archivos_cargados"]:
                     _pct = round(_conteo_alc.loc[_prov, _resp] / _t * 100, 2) if _t > 0 else 0.0
                     _fila[_prov] = round(_pct * (_peso_alcance_pct / 100), 2)
                 _filas_alc.append(_fila)
+            # ── tabla completa alcance (antes del resumen ponderado) ──
+            if data_alcance_servicios_raw:
+                df_alc_raw_export = pd.concat(data_alcance_servicios_raw, ignore_index=True)
+                df_alc_raw_export.to_excel(writer, index=False, sheet_name="Alcance de servicios - completo")
             pd.DataFrame(_filas_alc).to_excel(writer, index=False, sheet_name="Alcance de servicios")
 
         if data_metodologia:
