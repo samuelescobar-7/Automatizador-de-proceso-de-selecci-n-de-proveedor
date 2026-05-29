@@ -598,6 +598,16 @@ with st.sidebar:
         peso_total_cumplimiento = 1.0
         peso_total_calidad = 1.0
 
+    st.divider()
+    st.markdown("**Peso alcance:**")
+    st.caption("Rango: 0 a 100 — se aplica multiplicando el porcentaje de SI en la tabla de alcance de servicios")
+    _peso_alcance_pct = st.number_input(
+        "Peso alcance — rango: 0 a 100, pred: 100",
+        min_value=0, max_value=100, value=100, step=5,
+        key="ni_peso_alcance"
+    )
+    peso_alcance = _peso_alcance_pct / 100
+
 archivos = st.file_uploader("Sube archivos Excel", type=["xlsx"], accept_multiple_files=True)
 
 if "archivos_cargados" not in st.session_state:
@@ -723,7 +733,8 @@ if archivos and not st.session_state["archivos_cargados"]:
         "param_peso_total_cumplimiento_raw": _peso_total_cumplimiento_pct if incluir_calidad else 100,
         "param_peso_total_calidad_raw":      _peso_total_calidad_pct      if incluir_calidad else 100,
         "archivos_cargados": True,
-        "analisis_con_calidad": incluir_calidad
+        "analisis_con_calidad": incluir_calidad,
+        "param_peso_alcance_raw": _peso_alcance_pct,
     })
 
 
@@ -1326,27 +1337,32 @@ if st.session_state["archivos_cargados"]:
         conteo = conteo.reindex(todos_provs_alc, fill_value=0)
         total_por_prov = conteo.sum(axis=1)
 
+        # Peso alcance: se aplica solo a la fila SI (multiplicación)
+        _pa = st.session_state.get("param_peso_alcance_raw", _peso_alcance_pct) / 100
+
+        # ── Solo fila SI (fila NO eliminada) ──────────────────────────────────
         filas = []
-        for resp in ["SI", "NO"]:
+        for resp in ["SI"]:
             fila = {"Respuesta": resp}
             for prov in todos_provs_alc:
                 total = total_por_prov[prov]
-                if total > 0:
-                    pct = round(conteo.loc[prov, resp] / total * 100, 2)
-                else:
-                    pct = 0.0
+                pct = round(conteo.loc[prov, resp] / total * 100, 2) if total > 0 else 0.0
+                pct = round(pct * _pa, 2)
                 fila[prov] = f"{pct:.2f}%"
             filas.append(fila)
 
         df_alcance_tabla = pd.DataFrame(filas)
         st.dataframe(df_alcance_tabla, use_container_width=True, key="df_alcance_servicios")
 
+        # ── Solo fila SI para la descarga individual ───────────────────────────
         filas_raw = []
-        for resp in ["SI", "NO"]:
+        for resp in ["SI"]:
             fila = {"Respuesta": resp}
             for prov in todos_provs_alc:
                 total = total_por_prov[prov]
-                fila[prov] = round(conteo.loc[prov, resp] / total * 100, 2) if total > 0 else 0.0
+                pct = round(conteo.loc[prov, resp] / total * 100, 2) if total > 0 else 0.0
+                pct = round(pct * _pa, 2)
+                fila[prov] = pct
             filas_raw.append(fila)
         df_alcance_raw = pd.DataFrame(filas_raw)
         boton_descarga(
@@ -1473,12 +1489,14 @@ if st.session_state["archivos_cargados"]:
                     _conteo_alc[_col] = 0
             _conteo_alc = _conteo_alc[["SI", "NO"]].reindex(_provs_alc, fill_value=0)
             _total_alc = _conteo_alc.sum(axis=1)
+            # ── Solo fila SI en el reporte completo Excel ──────────────────────
             _filas_alc = []
-            for _resp in ["SI", "NO"]:
+            for _resp in ["SI"]:
                 _fila = {"Respuesta": _resp}
                 for _prov in _provs_alc:
                     _t = _total_alc[_prov]
-                    _fila[_prov] = round(_conteo_alc.loc[_prov, _resp] / _t * 100, 2) if _t > 0 else 0.0
+                    _pct = round(_conteo_alc.loc[_prov, _resp] / _t * 100, 2) if _t > 0 else 0.0
+                    _fila[_prov] = round(_pct * (_peso_alcance_pct / 100), 2)
                 _filas_alc.append(_fila)
             pd.DataFrame(_filas_alc).to_excel(writer, index=False, sheet_name="Alcance de servicios")
 
