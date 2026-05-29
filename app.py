@@ -480,12 +480,26 @@ if st.sidebar.button("Reiniciar análisis"):
     st.rerun()
 
 with st.sidebar:
-    if "incluir_calidad" not in st.session_state:
-        st.session_state["incluir_calidad"] = False
+    # Inicializar valores por defecto ANTES de renderizar widgets.
+    # setdefault solo escribe si la clave NO existe, preservando cambios del usuario.
+    st.session_state.setdefault("incluir_calidad", False)
+    st.session_state.setdefault("toggle_calidad", False)
+    st.session_state.setdefault("ni_peso_col_f", 100)
+    st.session_state.setdefault("ni_peso_col_g", 100)
+    st.session_state.setdefault("ni_si_pct", 100)
+    st.session_state.setdefault("ni_desarrollo_pct", 50)
+    st.session_state.setdefault("ni_tercero_pct", 50)
+    st.session_state.setdefault("ni_no_pct", 0)
+    st.session_state.setdefault("ni_k_completo", 100)
+    st.session_state.setdefault("ni_k_parcial", 50)
+    st.session_state.setdefault("ni_k_incompleto", 0)
+    st.session_state.setdefault("ni_peso_total_cum", 100)
+    st.session_state.setdefault("ni_peso_total_cal", 100)
+    st.session_state.setdefault("ni_peso_alcance", 100)
+    st.session_state.setdefault("ni_peso_metodologia", 100)
 
     incluir_calidad = st.toggle(
         "Agregar calidad al análisis",
-        value=st.session_state["incluir_calidad"],
         key="toggle_calidad"
     )
     st.session_state["incluir_calidad"] = incluir_calidad
@@ -497,12 +511,12 @@ with st.sidebar:
 
     peso_col_f_pct = st.number_input(
         "Peso máximo columna F (cubrimiento) — rango: 0 a 100",
-        min_value=0, max_value=100, value=100, step=5,
+        min_value=0, max_value=100, step=5,
         key="ni_peso_col_f"
     )
     peso_col_g_pct = st.number_input(
         "Peso máximo columna G (inclusión) — rango: 0 a 100",
-        min_value=0, max_value=100, value=100, step=5,
+        min_value=0, max_value=100, step=5,
         key="ni_peso_col_g"
     )
 
@@ -514,22 +528,22 @@ with st.sidebar:
 
     _si_pct = st.number_input(
         "SI (columna F) — rango: 0 a 100, pred: 100",
-        min_value=0, max_value=100, value=100, step=5,
+        min_value=0, max_value=100, step=5,
         key="ni_si_pct"
     )
     _desarrollo_pct = st.number_input(
         "DESARROLLO (columna F) — rango: 0 a 100, pred: 50",
-        min_value=0, max_value=100, value=50, step=5,
+        min_value=0, max_value=100, step=5,
         key="ni_desarrollo_pct"
     )
     _tercero_pct = st.number_input(
         "TERCERO (columna F) — rango: 0 a 100, pred: 50",
-        min_value=0, max_value=100, value=50, step=5,
+        min_value=0, max_value=100, step=5,
         key="ni_tercero_pct"
     )
     _no_pct = st.number_input(
         "NO (columna F) — rango: 0 a 100, pred: 0",
-        min_value=0, max_value=100, value=0, step=5,
+        min_value=0, max_value=100, step=5,
         key="ni_no_pct"
     )
 
@@ -548,17 +562,17 @@ with st.sidebar:
 
         _k_completo = st.number_input(
             "Completo (columna K) — rango: 0 a 100, pred: 100",
-            min_value=0, max_value=100, value=100, step=5,
+            min_value=0, max_value=100, step=5,
             key="ni_k_completo"
         )
         _k_parcial = st.number_input(
             "Parcial (columna K) — rango: 0 a 100, pred: 50",
-            min_value=0, max_value=100, value=50, step=5,
+            min_value=0, max_value=100, step=5,
             key="ni_k_parcial"
         )
         _k_incompleto = st.number_input(
             "Incompleto (columna K) — rango: 0 a 100, pred: 0",
-            min_value=0, max_value=100, value=0, step=5,
+            min_value=0, max_value=100, step=5,
             key="ni_k_incompleto"
         )
 
@@ -574,12 +588,12 @@ with st.sidebar:
 
         _peso_total_cumplimiento_pct = st.number_input(
             "Peso total cumplimiento — rango: 0 a 100, pred: 100",
-            min_value=0, max_value=100, value=100, step=5,
+            min_value=0, max_value=100, step=5,
             key="ni_peso_total_cum"
         )
         _peso_total_calidad_pct = st.number_input(
             "Peso total calidad — rango: 0 a 100, pred: 100",
-            min_value=0, max_value=100, value=100, step=5,
+            min_value=0, max_value=100, step=5,
             key="ni_peso_total_cal"
         )
 
@@ -596,7 +610,7 @@ with st.sidebar:
     st.caption("Rango: 0 a 100 — se aplica multiplicando el porcentaje de SI en la tabla de alcance de servicios")
     _peso_alcance_pct = st.number_input(
         "Peso alcance — rango: 0 a 100, pred: 100",
-        min_value=0, max_value=100, value=100, step=5,
+        min_value=0, max_value=100, step=5,
         key="ni_peso_alcance"
     )
     peso_alcance = _peso_alcance_pct / 100
@@ -605,7 +619,7 @@ with st.sidebar:
     st.caption("Rango: 0 a 100 — se aplica multiplicando el porcentaje de SI en la tabla de metodología implementación")
     _peso_metodologia_pct = st.number_input(
         "Peso metodología — rango: 0 a 100, pred: 100",
-        min_value=0, max_value=100, value=100, step=5,
+        min_value=0, max_value=100, step=5,
         key="ni_peso_metodologia"
     )
     peso_metodologia = _peso_metodologia_pct / 100
@@ -745,6 +759,98 @@ if archivos and not st.session_state["archivos_cargados"]:
 # =========================
 if st.session_state["archivos_cargados"]:
 
+    # ---- DETALLE DE HOJA (vista interna, sin cambio de página) ----
+    if st.session_state.get("pagina_actual") == "detalle":
+        hoja_d    = st.session_state.get("detalle_hoja")
+        det_df    = st.session_state.get("detalle_df")
+        det_df_k  = st.session_state.get("detalle_df_k")
+
+        st.subheader(f"Detalle de la hoja: {hoja_d}")
+
+        def _df_to_excel(dfs):
+            buf = BytesIO()
+            with pd.ExcelWriter(buf, engine="openpyxl") as w:
+                for sn, d in dfs.items():
+                    d.to_excel(w, index=False, sheet_name=sn)
+            return buf.getvalue()
+
+        if det_df is not None:
+            st.markdown("#### Cumplimiento por requerimiento")
+            _df = det_df.copy()
+            _df["Cumplimiento_%"] = _df["Peso_Total"] * 100
+            _pivot = _df.pivot_table(index="Requerimiento", columns="Proveedor",
+                                     values="Cumplimiento_%", aggfunc="first").fillna(0).reset_index()
+            _pivot_fmt = _pivot.copy()
+            for c in _pivot_fmt.columns:
+                if c != "Requerimiento":
+                    _pivot_fmt[c] = _pivot_fmt[c].apply(lambda x: f"{x:.2f}%")
+            st.dataframe(_pivot_fmt, use_container_width=True)
+            st.download_button("⬇️ Descargar cumplimiento por requerimiento",
+                               _df_to_excel({"Cumplimiento por requerimiento": _pivot}),
+                               file_name=f"cumplimiento_requerimiento_{hoja_d}.xlsx",
+                               mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                               key="dl_det_pivot_cum")
+            _resumen = det_df.groupby("Proveedor")["Peso_Total"].mean().mul(100).round(2).reset_index()
+            _resumen_fmt = _resumen.copy()
+            _resumen_fmt["Cumplimiento_%"] = _resumen_fmt["Peso_Total"].apply(lambda x: f"{x:.2f}%")
+            _resumen_fmt = _resumen_fmt.drop(columns=["Peso_Total"])
+            st.markdown("**Resumen cumplimiento**")
+            st.dataframe(_resumen_fmt)
+            st.download_button("⬇️ Descargar resumen cumplimiento",
+                               _df_to_excel({"Resumen cumplimiento": _resumen.rename(columns={"Peso_Total": "Cumplimiento_%"})}),
+                               file_name=f"resumen_cumplimiento_{hoja_d}.xlsx",
+                               mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                               key="dl_det_resumen_cum")
+
+        if det_df_k is not None:
+            st.markdown("#### Calidad por requerimiento")
+            _df_k = det_df_k.copy()
+            _df_k["Calidad_%"] = _df_k["Peso_K"] * 100
+            _pivot_k = _df_k.pivot_table(index="Requerimiento", columns="Proveedor",
+                                          values="Calidad_%", aggfunc="first").fillna(0).reset_index()
+            _pivot_k_fmt = _pivot_k.copy()
+            for c in _pivot_k_fmt.columns:
+                if c != "Requerimiento":
+                    _pivot_k_fmt[c] = _pivot_k_fmt[c].apply(lambda x: f"{x:.2f}%")
+            st.dataframe(_pivot_k_fmt, use_container_width=True)
+            st.download_button("⬇️ Descargar calidad por requerimiento",
+                               _df_to_excel({"Calidad por requerimiento": _pivot_k}),
+                               file_name=f"calidad_requerimiento_{hoja_d}.xlsx",
+                               mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                               key="dl_det_pivot_cal")
+            _resumen_k = det_df_k.groupby("Proveedor")["Peso_K"].mean().mul(100).round(2).reset_index()
+            _resumen_k_fmt = _resumen_k.copy()
+            _resumen_k_fmt["Calidad_%"] = _resumen_k_fmt["Peso_K"].apply(lambda x: f"{x:.2f}%")
+            _resumen_k_fmt = _resumen_k_fmt.drop(columns=["Peso_K"])
+            st.markdown("**Resumen calidad**")
+            st.dataframe(_resumen_k_fmt)
+            st.download_button("⬇️ Descargar resumen calidad",
+                               _df_to_excel({"Resumen calidad": _resumen_k.rename(columns={"Peso_K": "Calidad_%"})}),
+                               file_name=f"resumen_calidad_{hoja_d}.xlsx",
+                               mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                               key="dl_det_resumen_cal")
+
+        _sheets_completo = {}
+        if det_df is not None:
+            _sheets_completo["Detalle cumplimiento"] = _pivot
+            _sheets_completo["Resumen cumplimiento"] = _resumen.rename(columns={"Peso_Total": "Cumplimiento_%"})
+        if det_df_k is not None:
+            _sheets_completo["Detalle calidad"] = _pivot_k
+            _sheets_completo["Resumen calidad"] = _resumen_k.rename(columns={"Peso_K": "Calidad_%"})
+        st.divider()
+        st.download_button("⬇️ Descargar todo (Excel completo)",
+                           _df_to_excel(_sheets_completo),
+                           file_name=f"detalle_{hoja_d}.xlsx",
+                           mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                           key="dl_det_completo")
+
+        if st.button("← Volver"):
+            st.session_state["pagina_actual"] = "principal"
+            st.rerun()
+
+        st.stop()
+    # ---- FIN DETALLE ----
+
     df_final            = st.session_state["df_final"]
     df_total            = st.session_state["df_total"]
     df_final_k          = st.session_state["df_final_k"]
@@ -779,7 +885,8 @@ if st.session_state["archivos_cargados"]:
         st.session_state["detalle_hoja"] = hoja
         st.session_state["detalle_df"] = pd.concat(detalles_globales[hoja])
         st.session_state["detalle_df_k"] = pd.concat(detalles_globales_k[hoja]) if (analisis_con_calidad and hoja in detalles_globales_k) else None
-        st.switch_page("pages/detalle_hoja.py")
+        st.session_state["pagina_actual"] = "detalle"
+        st.rerun()
 
     st.markdown("#### Pesos por hoja funcional")
     st.caption("Rango: 0 a 100 — indica el peso porcentual de cada hoja en el total funcional")
@@ -847,7 +954,8 @@ if st.session_state["archivos_cargados"]:
             st.session_state["detalle_hoja"] = hoja_k
             st.session_state["detalle_df"] = pd.concat(detalles_globales[hoja_k]) if hoja_k in detalles_globales else None
             st.session_state["detalle_df_k"] = pd.concat(detalles_globales_k[hoja_k])
-            st.switch_page("pages/detalle_hoja.py")
+            st.session_state["pagina_actual"] = "detalle"
+            st.rerun()
 
         st.markdown("#### Total de calidad")
         st.dataframe(formatear_porcentaje_df(df_total_k), key="df_total_cal_func")
@@ -872,7 +980,8 @@ if st.session_state["archivos_cargados"]:
         st.session_state["detalle_hoja"] = hoja_nf
         st.session_state["detalle_df"] = pd.concat(detalles_globales_nf[hoja_nf])
         st.session_state["detalle_df_k"] = pd.concat(detalles_globales_k_nf[hoja_nf]) if (analisis_con_calidad and hoja_nf in detalles_globales_k_nf) else None
-        st.switch_page("pages/detalle_hoja.py")
+        st.session_state["pagina_actual"] = "detalle"
+        st.rerun()
 
     st.markdown("#### Pesos por hoja no funcional")
     st.caption("Rango: 0 a 100 — indica el peso porcentual de cada hoja en el total no funcional")
@@ -940,7 +1049,8 @@ if st.session_state["archivos_cargados"]:
             st.session_state["detalle_hoja"] = hoja_k_nf
             st.session_state["detalle_df"] = pd.concat(detalles_globales_nf[hoja_k_nf]) if hoja_k_nf in detalles_globales_nf else None
             st.session_state["detalle_df_k"] = pd.concat(detalles_globales_k_nf[hoja_k_nf])
-            st.switch_page("pages/detalle_hoja.py")
+            st.session_state["pagina_actual"] = "detalle"
+            st.rerun()
 
         st.markdown("#### Total de calidad")
         st.dataframe(formatear_porcentaje_df(df_total_k_nf), key="df_total_cal_nofunc")
