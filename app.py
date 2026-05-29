@@ -1215,21 +1215,6 @@ if st.session_state["archivos_cargados"]:
     # ---- SOLIDEZ DEL FABRICANTE ----
     st.subheader("Solidez del fabricante")
 
-    # ── NUEVO: Tabla completa de experiencia del fabricante ──────────────────
-    st.markdown("#### Experiencia del fabricante — tabla completa")
-    if data_experiencia_raw:
-        df_exp_raw_all = pd.concat(data_experiencia_raw, ignore_index=True)
-        st.dataframe(df_exp_raw_all, use_container_width=True, key="df_exp_raw_completo")
-        boton_descarga(
-            "⬇️ Descargar tabla completa experiencia fabricante",
-            {"Experiencia Fabricante": df_exp_raw_all},
-            "experiencia_fabricante_completa.xlsx",
-            "dl_exp_raw_completo"
-        )
-    else:
-        st.info("No se encontraron datos de experiencia del fabricante (hoja '3.').")
-    # ── FIN NUEVO ────────────────────────────────────────────────────────────
-
     st.markdown("#### Experiencia del fabricante")
     if data_experiencia:
         df_exp_all = pd.concat(data_experiencia, ignore_index=True)
@@ -1435,21 +1420,6 @@ if st.session_state["archivos_cargados"]:
 
     st.markdown("#### Experiencia del oferente")
 
-    # ── Tabla completa experiencia del oferente ──────────────────────────────
-    st.markdown("##### Tabla completa")
-    if data_experiencia_oferente_raw:
-        df_exp_of_raw_all = pd.concat(data_experiencia_oferente_raw, ignore_index=True)
-        st.dataframe(df_exp_of_raw_all, use_container_width=True, key="df_exp_of_raw_completo")
-        boton_descarga(
-            "⬇️ Descargar tabla completa experiencia oferente",
-            {"Experiencia Oferente": df_exp_of_raw_all},
-            "experiencia_oferente_completa.xlsx",
-            "dl_exp_of_raw_completo"
-        )
-    else:
-        st.info("No se encontraron datos de experiencia del oferente (hoja '5.').")
-    # ── FIN tabla completa ───────────────────────────────────────────────────
-
     if data_experiencia_oferente:
         df_exp_of_all = pd.concat(data_experiencia_oferente, ignore_index=True)
         todos_proveedores_of = list(df_exp_of_all["Proveedor"].unique())
@@ -1611,23 +1581,6 @@ if st.session_state["archivos_cargados"]:
 
     # ---- ALCANCE DE SERVICIOS ----
     st.markdown("#### Alcance de servicios")
-
-    # ── Tabla completa alcance de servicios ─────────────────────────────────
-    st.markdown("##### Tabla completa")
-    if data_alcance_servicios_raw:
-        df_alc_raw_all = pd.concat(data_alcance_servicios_raw, ignore_index=True)
-        st.dataframe(df_alc_raw_all, use_container_width=True, key="df_alcance_raw_completo")
-        boton_descarga(
-            "⬇️ Descargar tabla completa alcance de servicios",
-            {"Alcance de servicios completo": df_alc_raw_all},
-            "alcance_servicios_completo.xlsx",
-            "dl_alcance_raw_completo"
-        )
-    else:
-        st.info("No se encontraron datos de alcance de servicios (hoja '6.').")
-    # ── FIN tabla completa ───────────────────────────────────────────────────
-
-    st.markdown("##### Resumen ponderado")
     if data_alcance_servicios:
         df_alc_all = pd.concat(data_alcance_servicios, ignore_index=True)
         df_alc_all = df_alc_all[df_alc_all["Respuesta"] != ""]
