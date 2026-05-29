@@ -180,6 +180,52 @@ def analizar_hoja_experiencia(wb, proveedor):
     return pd.DataFrame(data)
 
 
+def analizar_hoja_experiencia_raw(wb, proveedor):
+    """
+    Extrae la tabla completa de la hoja '3. Experiencia del Fabricante'
+    con todas las columnas desde C hasta K (índices 3 a 11) a partir de la fila 11.
+    Agrega una columna 'Proveedor' con el nombre del archivo.
+    """
+    COLUMNAS = [
+        "Nombre del contratante (Cliente)",
+        "Sector/Industria",
+        "País",
+        "Procesos/componentes implementados y funcionando en la actualidad",
+        "Versión de la Solución",
+        "Nombre del contacto",
+        "E-mail del contacto",
+        "Teléfono del contacto",
+        "Estado de la implementación",
+    ]
+    # Columnas C=3 hasta K=11 (1-indexed en openpyxl)
+    COL_INICIO = 3
+    COL_FIN = 11
+
+    hoja_nombre = next((s for s in wb.sheetnames if s.strip().startswith("3.")), None)
+    if hoja_nombre is None:
+        return pd.DataFrame(columns=["Proveedor"] + COLUMNAS)
+
+    ws = wb[hoja_nombre]
+    data = []
+    for r in range(11, ws.max_row + 1):
+        # Usamos columna B (índice 2) como indicador de fila con número
+        num = ws.cell(r, 2).value
+        if num is None:
+            continue
+        valores = [ws.cell(r, c).value for c in range(COL_INICIO, COL_FIN + 1)]
+        # Si todas las celdas de C a K son None, saltar
+        if all(v is None for v in valores):
+            continue
+        fila = {"Proveedor": proveedor}
+        for col_name, val in zip(COLUMNAS, valores):
+            fila[col_name] = str(val).strip() if val is not None else ""
+        data.append(fila)
+
+    if not data:
+        return pd.DataFrame(columns=["Proveedor"] + COLUMNAS)
+    return pd.DataFrame(data)[["Proveedor"] + COLUMNAS]
+
+
 def analizar_hoja_experiencia_oferente(wb, proveedor):
     hoja_nombre = next((s for s in wb.sheetnames if s.strip().startswith("5.")), None)
     if hoja_nombre is None:
@@ -635,6 +681,7 @@ if archivos and not st.session_state["archivos_cargados"]:
     detalles_globales, detalles_globales_k = {}, {}
     detalles_globales_nf, detalles_globales_k_nf = {}, {}
     data_experiencia = []
+    data_experiencia_raw = []          # ← NUEVO: tabla completa hoja 3
     data_experiencia_oferente = []
     data_alcance_servicios = []
     data_metodologia = []
@@ -690,6 +737,12 @@ if archivos and not st.session_state["archivos_cargados"]:
         df_exp = analizar_hoja_experiencia(wb_exp, proveedor)
         if df_exp is not None:
             data_experiencia.append(df_exp)
+
+        # ← NUEVO: extraer tabla raw completa de hoja 3
+        df_exp_raw = analizar_hoja_experiencia_raw(wb_exp, proveedor)
+        if df_exp_raw is not None and not df_exp_raw.empty:
+            data_experiencia_raw.append(df_exp_raw)
+
         df_exp_oferente = analizar_hoja_experiencia_oferente(wb_exp, proveedor)
         if df_exp_oferente is not None:
             data_experiencia_oferente.append(df_exp_oferente)
@@ -722,6 +775,7 @@ if archivos and not st.session_state["archivos_cargados"]:
         "detalles_globales_nf": detalles_globales_nf,
         "detalles_globales_k_nf": detalles_globales_k_nf,
         "data_experiencia": data_experiencia,
+        "data_experiencia_raw": data_experiencia_raw,          # ← NUEVO
         "data_experiencia_oferente": data_experiencia_oferente,
         "data_alcance_servicios": data_alcance_servicios,
         "data_metodologia": data_metodologia,
@@ -863,7 +917,8 @@ if st.session_state["archivos_cargados"]:
     detalles_globales_k    = st.session_state["detalles_globales_k"]
     detalles_globales_nf   = st.session_state["detalles_globales_nf"]
     detalles_globales_k_nf = st.session_state["detalles_globales_k_nf"]
-    data_experiencia         = st.session_state["data_experiencia"]
+    data_experiencia          = st.session_state["data_experiencia"]
+    data_experiencia_raw      = st.session_state.get("data_experiencia_raw", [])   # ← NUEVO
     data_experiencia_oferente = st.session_state.get("data_experiencia_oferente", [])
     data_alcance_servicios    = st.session_state.get("data_alcance_servicios", [])
     analisis_con_calidad   = st.session_state.get("analisis_con_calidad", False)
@@ -1062,6 +1117,21 @@ if st.session_state["archivos_cargados"]:
 
     # ---- SOLIDEZ DEL FABRICANTE ----
     st.subheader("Solidez del fabricante")
+
+    # ── NUEVO: Tabla completa de experiencia del fabricante ──────────────────
+    st.markdown("#### Experiencia del fabricante — tabla completa")
+    if data_experiencia_raw:
+        df_exp_raw_all = pd.concat(data_experiencia_raw, ignore_index=True)
+        st.dataframe(df_exp_raw_all, use_container_width=True, key="df_exp_raw_completo")
+        boton_descarga(
+            "⬇️ Descargar tabla completa experiencia fabricante",
+            {"Experiencia Fabricante": df_exp_raw_all},
+            "experiencia_fabricante_completa.xlsx",
+            "dl_exp_raw_completo"
+        )
+    else:
+        st.info("No se encontraron datos de experiencia del fabricante (hoja '3.').")
+    # ── FIN NUEVO ────────────────────────────────────────────────────────────
 
     st.markdown("#### Experiencia del fabricante")
     if data_experiencia:
@@ -1573,7 +1643,7 @@ if st.session_state["archivos_cargados"]:
     buffer = BytesIO()
     with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
 
-        # ── Detalle por hoja FUNCIONAL (antes de F - Comparativo) ──────────
+        # ── Detalle por hoja FUNCIONAL ──────────────────────────────────────
         for hoja_det, lista_dfs in detalles_globales.items():
             df_det = pd.concat(lista_dfs)
             df_det["Cumplimiento_%"] = df_det["Peso_Total"] * 100
@@ -1586,7 +1656,7 @@ if st.session_state["archivos_cargados"]:
             sheet_name = f"Detalle de la hoja {hoja_det}"[:31]
             df_pivot_det.to_excel(writer, index=False, sheet_name=sheet_name)
 
-        # ── Detalle por hoja NO FUNCIONAL (antes de F - Comparativo) ───────
+        # ── Detalle por hoja NO FUNCIONAL ───────────────────────────────────
         for hoja_det, lista_dfs in detalles_globales_nf.items():
             df_det = pd.concat(lista_dfs)
             df_det["Cumplimiento_%"] = df_det["Peso_Total"] * 100
@@ -1614,6 +1684,12 @@ if st.session_state["archivos_cargados"]:
             df_total_k_nf.to_excel(writer, index=False, sheet_name="NF - Total calidad")
             df_puntaje_nf.to_excel(writer, index=False, sheet_name="NF - Puntaje")
             df_total_puntaje_nf.to_excel(writer, index=False, sheet_name="NF - Total puntaje")
+
+        # ── NUEVO: tabla completa experiencia fabricante (antes de Exp - Por sector) ──
+        if data_experiencia_raw:
+            df_exp_raw_export = pd.concat(data_experiencia_raw, ignore_index=True)
+            df_exp_raw_export.to_excel(writer, index=False, sheet_name="Exp - Fabricante completa")
+
         if data_experiencia:
             pivot_sector.to_excel(writer, index=False, sheet_name="Exp - Por sector")
 
