@@ -307,11 +307,6 @@ def boton_descarga(label, dfs: dict, file_name: str, key: str):
 
 
 def obtener_fecha_modificacion(archivo_bytes):
-    """
-    Lee <dcterms:modified> directamente del XML dentro del ZIP del .xlsx,
-    sin pasar por openpyxl, para evitar que load_workbook pise el metadato.
-    Soporta múltiples formatos de fecha que distintas herramientas pueden escribir.
-    """
     import zipfile
     import xml.etree.ElementTree as ET
     import re as _re
@@ -328,13 +323,12 @@ def obtener_fecha_modificacion(archivo_bytes):
 
                 raw = modified_el.text.strip()
 
-                # Intentar múltiples formatos
                 formatos = [
-                    "%Y-%m-%dT%H:%M:%SZ",   # 2024-05-29T15:00:00Z
-                    "%Y-%m-%dT%H:%M:%S",    # 2024-05-29T15:00:00
-                    "%Y-%m-%d %H:%M:%S",    # 2024-05-29 15:00:00
-                    "%Y-%m-%dT%H:%M",       # 2024-05-29T15:00
-                    "%Y-%m-%d",             # 2024-05-29
+                    "%Y-%m-%dT%H:%M:%SZ",
+                    "%Y-%m-%dT%H:%M:%S",
+                    "%Y-%m-%d %H:%M:%S",
+                    "%Y-%m-%dT%H:%M",
+                    "%Y-%m-%d",
                 ]
                 dt = None
                 for fmt in formatos:
@@ -344,7 +338,6 @@ def obtener_fecha_modificacion(archivo_bytes):
                     except ValueError:
                         continue
 
-                # Último intento: fromisoformat limpiando la Z y offset
                 if dt is None:
                     try:
                         clean = _re.sub(r"Z$", "+00:00", raw)
@@ -375,11 +368,9 @@ def construir_hoja_info_analisis(
     pesos_hojas_func,
     pesos_hojas_nf,
     metadata_archivos,
+    peso_alcance,       # ← NUEVO
+    peso_metodologia,   # ← NUEVO
 ):
-    """
-    Todos los argumentos de peso se reciben tal como los ingresó el usuario
-    (escala 0–100), sin ninguna conversión ni multiplicación.
-    """
     bloques = []
 
     df_fecha = pd.DataFrame([{
@@ -429,6 +420,14 @@ def construir_hoja_info_analisis(
             for h, p in pesos_hojas_nf.items()
         ])
         bloques.append(("Pesos por hoja no funcional", df_ph_nf))
+
+    # ── NUEVO: bloque alcance y metodología ──────────────────────────────────
+    df_pesos_adicionales = pd.DataFrame([
+        {"Parámetro": "Peso alcance",      "Valor": peso_alcance},
+        {"Parámetro": "Peso metodología",  "Valor": peso_metodologia},
+    ])
+    bloques.append(("Pesos alcance y metodología", df_pesos_adicionales))
+    # ─────────────────────────────────────────────────────────────────────────
 
     if metadata_archivos:
         df_archivos = pd.DataFrame(metadata_archivos)
@@ -496,7 +495,6 @@ with st.sidebar:
     st.header("Pesos cumplimiento funcional")
     st.caption("Todos los pesos se ingresan de 0 a 100 (se convierten internamente a escala 0.0–1.0)")
 
-    # ── Pesos de columnas F y G (0–100) ──────────────────────────────────────
     peso_col_f_pct = st.number_input(
         "Peso máximo columna F (cubrimiento) — rango: 0 a 100",
         min_value=0, max_value=100, value=100, step=5,
@@ -508,11 +506,9 @@ with st.sidebar:
         key="ni_peso_col_g"
     )
 
-    # Conversión interna a decimal
     peso_col_f = peso_col_f_pct / 100
     peso_col_g = peso_col_g_pct / 100
 
-    # ── Proporciones del peso máximo col F (0–100) ───────────────────────────
     st.markdown("**Pesos cubrimiento (proporción del peso máximo col F):**")
     st.caption("Cada valor indica qué porcentaje del peso máximo de col F se asigna a esa respuesta. Rango: 0 a 100")
 
@@ -537,7 +533,6 @@ with st.sidebar:
         key="ni_no_pct"
     )
 
-    # Conversión interna a decimal y aplicación del peso máximo
     pesos_f = {
         "SI":         (_si_pct         / 100) * peso_col_f,
         "DESARROLLO": (_desarrollo_pct / 100) * peso_col_f,
@@ -567,7 +562,6 @@ with st.sidebar:
             key="ni_k_incompleto"
         )
 
-        # Conversión interna a decimal
         pesos_k = {
             "COMPLETO":   _k_completo   / 100,
             "PARCIAL":    _k_parcial    / 100,
@@ -589,7 +583,6 @@ with st.sidebar:
             key="ni_peso_total_cal"
         )
 
-        # Conversión interna a decimal
         peso_total_cumplimiento = _peso_total_cumplimiento_pct / 100
         peso_total_calidad      = _peso_total_calidad_pct      / 100
 
@@ -725,7 +718,6 @@ if archivos and not st.session_state["archivos_cargados"]:
         "metadata_archivos": metadata_archivos,
         "nombres_proveedores": nombres_proveedores,
         "param_incluir_calidad": incluir_calidad,
-        # Valores tal como los ingresó el usuario (0–100), solo para el reporte
         "param_peso_col_f_raw": peso_col_f_pct,
         "param_peso_col_g_raw": peso_col_g_pct,
         "param_pesos_f_raw": {
@@ -1347,10 +1339,8 @@ if st.session_state["archivos_cargados"]:
         conteo = conteo.reindex(todos_provs_alc, fill_value=0)
         total_por_prov = conteo.sum(axis=1)
 
-        # Peso alcance: se aplica solo a la fila SI (multiplicación)
         _pa = st.session_state.get("param_peso_alcance_raw", _peso_alcance_pct) / 100
 
-        # ── Solo fila SI (fila NO eliminada) ──────────────────────────────────
         filas = []
         for resp in ["SI"]:
             fila = {"Respuesta": resp}
@@ -1364,7 +1354,6 @@ if st.session_state["archivos_cargados"]:
         df_alcance_tabla = pd.DataFrame(filas)
         st.dataframe(df_alcance_tabla, use_container_width=True, key="df_alcance_servicios")
 
-        # ── Solo fila SI para la descarga individual ───────────────────────────
         filas_raw = []
         for resp in ["SI"]:
             fila = {"Respuesta": resp}
@@ -1402,10 +1391,8 @@ if st.session_state["archivos_cargados"]:
         conteo_met = conteo_met[["SI", "NO"]].reindex(todos_provs_met, fill_value=0)
         total_por_prov_met = conteo_met.sum(axis=1)
 
-        # Peso metodología: se aplica solo a la fila SI (multiplicación)
         _pm = st.session_state.get("param_peso_metodologia_raw", _peso_metodologia_pct) / 100
 
-        # ── Solo fila SI (fila NO eliminada) ──────────────────────────────────
         filas_met = []
         for resp in ["SI"]:
             fila = {"Respuesta": resp}
@@ -1418,7 +1405,6 @@ if st.session_state["archivos_cargados"]:
 
         st.dataframe(pd.DataFrame(filas_met), use_container_width=True, key="df_metodologia")
 
-        # ── Solo fila SI para la descarga individual ───────────────────────────
         filas_met_raw = []
         for resp in ["SI"]:
             fila = {"Respuesta": resp}
@@ -1467,6 +1453,8 @@ if st.session_state["archivos_cargados"]:
         pesos_hojas_func=pesos_hojas_func_reporte,
         pesos_hojas_nf=pesos_hojas_nf_reporte,
         metadata_archivos=metadata_archivos,
+        peso_alcance=st.session_state.get("param_peso_alcance_raw", 100),          # ← NUEVO
+        peso_metodologia=st.session_state.get("param_peso_metodologia_raw", 100),  # ← NUEVO
     )
 
     if not analisis_con_calidad:
@@ -1508,7 +1496,6 @@ if st.session_state["archivos_cargados"]:
                     _conteo_alc[_col] = 0
             _conteo_alc = _conteo_alc[["SI", "NO"]].reindex(_provs_alc, fill_value=0)
             _total_alc = _conteo_alc.sum(axis=1)
-            # ── Solo fila SI en el reporte completo Excel ──────────────────────
             _filas_alc = []
             for _resp in ["SI"]:
                 _fila = {"Respuesta": _resp}
@@ -1532,7 +1519,6 @@ if st.session_state["archivos_cargados"]:
                     _conteo_met[_col] = 0
             _conteo_met = _conteo_met[["SI", "NO"]].reindex(_provs_met, fill_value=0)
             _total_met = _conteo_met.sum(axis=1)
-            # ── Solo fila SI en el reporte completo Excel ──────────────────────
             _filas_met = []
             for _resp in ["SI"]:
                 _fila = {"Respuesta": _resp}
