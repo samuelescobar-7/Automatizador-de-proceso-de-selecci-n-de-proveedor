@@ -1756,10 +1756,18 @@ if st.session_state["archivos_cargados"]:
             df_pivot_det.to_excel(writer, index=False, sheet_name=sheet_name)
 
         # ── Tablas funcionales ──────────────────────────────────────────────
-        _safe_to_excel(df_final,              writer, "F - Comparativo")
-        _safe_to_excel(df_f_total_export,     writer, "F - Total")
-        _safe_to_excel(df_final_k,            writer, "F - Calidad por hoja")
-        _safe_to_excel(df_total_k,            writer, "F - Total calidad")
+        _safe_to_excel(df_final,   writer, "F - Comparativo")
+        _safe_to_excel(df_final_k, writer, "F - Calidad por hoja")
+
+        # Hoja "F - Total integrado": detalle por hoja + fila TOTAL
+        _df_integ_func  = st.session_state.get("df_integrado_func")
+        _df_total_integ_func = st.session_state.get("df_total_integrado_func")
+        if _df_integ_func is not None and not _df_integ_func.empty:
+            _export_integ_func = pd.concat(
+                [_df_integ_func, _df_total_integ_func], ignore_index=True
+            )
+            _safe_to_excel(_export_integ_func, writer, "F - Total integrado")
+
         _safe_to_excel(df_puntaje_func_export,       writer, "F - Puntaje funcional")
         _safe_to_excel(df_total_puntaje_func_export, writer, "F - Total puntaje")
 
