@@ -1689,6 +1689,23 @@ if st.session_state["archivos_cargados"]:
     # ---- EXPORTAR EXCEL COMPLETO ----
     st.divider()
 
+    # Verificar que ambos totales integrados estén generados antes de permitir descarga
+    _listo_func = st.session_state.get("mostrar_total_func", False)
+    _listo_nf   = st.session_state.get("mostrar_total_nf", False)
+
+    _pendientes = []
+    if not _listo_func:
+        _pendientes.append("**Total funcional integrado** — presiona «Generar total funcional integrado»")
+    if not _listo_nf:
+        _pendientes.append("**Total no funcional integrado** — presiona «Generar total no funcional integrado»")
+
+    if _pendientes:
+        st.info(
+            "⚠️ Para habilitar la descarga del reporte completo, primero genera las siguientes tablas:\n\n"
+            + "\n".join(f"- {p}" for p in _pendientes)
+        )
+        st.stop()
+
     pesos_hojas_func_reporte = st.session_state.get(
         "snapshot_pesos_hojas_func",
         {h: st.session_state.get(f"peso_hoja_func_{h}", 100) for h in df_final["Hoja"].tolist()}
