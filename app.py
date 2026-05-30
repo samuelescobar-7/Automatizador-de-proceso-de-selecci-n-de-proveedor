@@ -1733,27 +1733,111 @@ if st.session_state["archivos_cargados"]:
         for hoja_det, lista_dfs in detalles_globales.items():
             df_det = pd.concat(lista_dfs)
             df_det["Cumplimiento_%"] = df_det["Peso_Total"] * 100
-            df_pivot_det = df_det.pivot_table(
+            df_pivot_cum = df_det.pivot_table(
                 index="Requerimiento",
                 columns="Proveedor",
                 values="Cumplimiento_%",
                 aggfunc="first"
             ).fillna(0).reset_index()
+
+            # Tabla calidad si existe
+            df_pivot_cal = None
+            if hoja_det in detalles_globales_k:
+                df_det_k = pd.concat(detalles_globales_k[hoja_det])
+                df_det_k["Calidad_%"] = df_det_k["Peso_K"] * 100
+                df_pivot_cal = df_det_k.pivot_table(
+                    index="Requerimiento",
+                    columns="Proveedor",
+                    values="Calidad_%",
+                    aggfunc="first"
+                ).fillna(0).reset_index()
+
             sheet_name = f"Detalle de la hoja {hoja_det}"[:31]
-            df_pivot_det.to_excel(writer, index=False, sheet_name=sheet_name)
+            # Escribir ambas tablas con títulos en la misma hoja
+            ws_det = writer.book.create_sheet(sheet_name)
+            fila_ws = 1
+            # Título cumplimiento
+            ws_det.cell(row=fila_ws, column=1, value="Cumplimiento por requerimiento").font = openpyxl.styles.Font(bold=True, size=11)
+            fila_ws += 1
+            # Cabecera
+            for ci, col_name in enumerate(df_pivot_cum.columns, start=1):
+                ws_det.cell(row=fila_ws, column=ci, value=col_name).font = openpyxl.styles.Font(bold=True)
+            fila_ws += 1
+            # Datos cumplimiento
+            for _, row in df_pivot_cum.iterrows():
+                for ci, val in enumerate(row, start=1):
+                    ws_det.cell(row=fila_ws, column=ci, value=val)
+                fila_ws += 1
+
+            if df_pivot_cal is not None:
+                fila_ws += 1  # fila en blanco de separación
+                # Título calidad
+                ws_det.cell(row=fila_ws, column=1, value="Calidad por requerimiento").font = openpyxl.styles.Font(bold=True, size=11)
+                fila_ws += 1
+                # Cabecera
+                for ci, col_name in enumerate(df_pivot_cal.columns, start=1):
+                    ws_det.cell(row=fila_ws, column=ci, value=col_name).font = openpyxl.styles.Font(bold=True)
+                fila_ws += 1
+                # Datos calidad
+                for _, row in df_pivot_cal.iterrows():
+                    for ci, val in enumerate(row, start=1):
+                        ws_det.cell(row=fila_ws, column=ci, value=val)
+                    fila_ws += 1
 
         # ── Detalle por hoja NO FUNCIONAL ───────────────────────────────────
         for hoja_det, lista_dfs in detalles_globales_nf.items():
             df_det = pd.concat(lista_dfs)
             df_det["Cumplimiento_%"] = df_det["Peso_Total"] * 100
-            df_pivot_det = df_det.pivot_table(
+            df_pivot_cum = df_det.pivot_table(
                 index="Requerimiento",
                 columns="Proveedor",
                 values="Cumplimiento_%",
                 aggfunc="first"
             ).fillna(0).reset_index()
+
+            # Tabla calidad si existe
+            df_pivot_cal = None
+            if hoja_det in detalles_globales_k_nf:
+                df_det_k = pd.concat(detalles_globales_k_nf[hoja_det])
+                df_det_k["Calidad_%"] = df_det_k["Peso_K"] * 100
+                df_pivot_cal = df_det_k.pivot_table(
+                    index="Requerimiento",
+                    columns="Proveedor",
+                    values="Calidad_%",
+                    aggfunc="first"
+                ).fillna(0).reset_index()
+
             sheet_name = f"Detalle de la hoja {hoja_det}"[:31]
-            df_pivot_det.to_excel(writer, index=False, sheet_name=sheet_name)
+            # Escribir ambas tablas con títulos en la misma hoja
+            ws_det = writer.book.create_sheet(sheet_name)
+            fila_ws = 1
+            # Título cumplimiento
+            ws_det.cell(row=fila_ws, column=1, value="Cumplimiento por requerimiento").font = openpyxl.styles.Font(bold=True, size=11)
+            fila_ws += 1
+            # Cabecera
+            for ci, col_name in enumerate(df_pivot_cum.columns, start=1):
+                ws_det.cell(row=fila_ws, column=ci, value=col_name).font = openpyxl.styles.Font(bold=True)
+            fila_ws += 1
+            # Datos cumplimiento
+            for _, row in df_pivot_cum.iterrows():
+                for ci, val in enumerate(row, start=1):
+                    ws_det.cell(row=fila_ws, column=ci, value=val)
+                fila_ws += 1
+
+            if df_pivot_cal is not None:
+                fila_ws += 1  # fila en blanco de separación
+                # Título calidad
+                ws_det.cell(row=fila_ws, column=1, value="Calidad por requerimiento").font = openpyxl.styles.Font(bold=True, size=11)
+                fila_ws += 1
+                # Cabecera
+                for ci, col_name in enumerate(df_pivot_cal.columns, start=1):
+                    ws_det.cell(row=fila_ws, column=ci, value=col_name).font = openpyxl.styles.Font(bold=True)
+                fila_ws += 1
+                # Datos calidad
+                for _, row in df_pivot_cal.iterrows():
+                    for ci, val in enumerate(row, start=1):
+                        ws_det.cell(row=fila_ws, column=ci, value=val)
+                    fila_ws += 1
 
         # ── Tablas funcionales ──────────────────────────────────────────────
         _safe_to_excel(df_final,   writer, "F - Comparativo")
