@@ -1772,12 +1772,20 @@ if st.session_state["archivos_cargados"]:
         _safe_to_excel(df_total_puntaje_func_export, writer, "F - Total puntaje")
 
         # ── Tablas no funcionales ───────────────────────────────────────────
-        _safe_to_excel(df_final_nf,           writer, "NF - Comparativo")
-        _safe_to_excel(df_nf_total_export,    writer, "NF - Total")
-        _safe_to_excel(df_final_k_nf,         writer, "NF - Calidad por hoja")
-        _safe_to_excel(df_total_k_nf,         writer, "NF - Total calidad")
-        _safe_to_excel(df_puntaje_nf_export,        writer, "NF - Puntaje")
-        _safe_to_excel(df_total_puntaje_nf_export,  writer, "NF - Total puntaje")
+        _safe_to_excel(df_final_nf,   writer, "NF - Comparativo")
+        _safe_to_excel(df_final_k_nf, writer, "NF - Calidad por hoja")
+
+        # Hoja "NF - Total integrado": detalle por hoja + fila TOTAL
+        _df_integ_nf       = st.session_state.get("df_integrado_nf")
+        _df_total_integ_nf = st.session_state.get("df_total_integrado_nf")
+        if _df_integ_nf is not None and not _df_integ_nf.empty:
+            _export_integ_nf = pd.concat(
+                [_df_integ_nf, _df_total_integ_nf], ignore_index=True
+            )
+            _safe_to_excel(_export_integ_nf, writer, "NF - Total integrado")
+
+        _safe_to_excel(df_puntaje_nf_export,       writer, "NF - Puntaje")
+        _safe_to_excel(df_total_puntaje_nf_export, writer, "NF - Total puntaje")
 
         # ── Experiencia fabricante ──────────────────────────────────────────
         if data_experiencia_raw:
