@@ -277,25 +277,43 @@ def analizar_hoja_experiencia_oferente_raw(wb, proveedor):
     return pd.DataFrame(data)[["Proveedor"] + COLUMNAS]
 
 
+# =========================
+# ALCANCE DE SERVICIOS — lee col C (SI/NO) y col E (calidad) desde fila 6
+# =========================
 def analizar_hoja_alcance_servicios(wb, proveedor):
+    """
+    Lee la hoja '6. Alcance Servicios'.
+    Columna C (col 3): SI / NO
+    Columna E (col 5): COMPLETA / CASI COMPLETA / PARCIALMENTE COMPLETA /
+                       INCOMPLETA / TOTALMENTE INCOMPLETA
+    Devuelve un DataFrame con columnas: Respuesta_C, Respuesta_E, Proveedor
+    """
     hoja_nombre = next((s for s in wb.sheetnames if s.strip().startswith("6.")), None)
     if hoja_nombre is None:
-        return pd.DataFrame([{"Respuesta": "", "Proveedor": proveedor}])
+        return pd.DataFrame(columns=["Respuesta_C", "Respuesta_E", "Proveedor"])
     ws = wb[hoja_nombre]
     data = []
-    for r in range(1, ws.max_row + 1):
-        val = ws.cell(r, 3).value
-        if val is None:
+    for r in range(6, ws.max_row + 1):
+        val_c = ws.cell(r, 3).value
+        if val_c is None:
             continue
-        val_norm = str(val).strip().upper()
-        if val_norm not in {"SI", "NO"}:
+        val_c_norm = str(val_c).strip().upper()
+        if val_c_norm not in {"SI", "NO"}:
             continue
         nombre = ws.cell(r, 2).value
         if nombre is None:
             continue
-        data.append({"Respuesta": val_norm, "Proveedor": proveedor})
+        val_e = ws.cell(r, 5).value
+        val_e_norm = str(val_e).strip().upper() if val_e is not None else "VACIO"
+        if val_e_norm not in VALID_RESPUESTAS_K:
+            val_e_norm = "VACIO"
+        data.append({
+            "Respuesta_C": val_c_norm,
+            "Respuesta_E": val_e_norm,
+            "Proveedor": proveedor
+        })
     if not data:
-        return pd.DataFrame([{"Respuesta": "", "Proveedor": proveedor}])
+        return pd.DataFrame(columns=["Respuesta_C", "Respuesta_E", "Proveedor"])
     return pd.DataFrame(data)
 
 
@@ -625,6 +643,62 @@ def _safe_to_excel(df, writer, sheet_name):
 
 
 # =========================
+# HELPER: calcular tabla alcance de servicios
+# Fórmula: (% SI * peso_total_cum + % calidad_col_E * peso_total_cal) * peso_alcance
+# =========================
+def calcular_tabla_alcance(data_alcance_servicios, nombres_proveedores, pesos_k,
+                            peso_total_cumplimiento, peso_total_calidad, peso_alcance):
+    """
+    Recibe la lista de DataFrames de alcance (uno por proveedor),
+    cada uno con columnas: Respuesta_C (SI/NO), Respuesta_E (calidad), Proveedor.
+    Devuelve (df_tabla_fmt, df_tabla_raw) con la columna por proveedor.
+    """
+    if not data_alcance_servicios:
+        return None, None
+
+    df_alc_all = pd.concat(data_alcance_servicios, ignore_index=True)
+    todos_provs = nombres_proveedores if nombres_proveedores else sorted(df_alc_all["Proveedor"].unique())
+
+    max_k = pesos_k.get("COMPLETA", 1.0)
+
+    filas_fmt = []
+    filas_raw = []
+    fila_fmt = {"Métrica": "Puntaje alcance"}
+    fila_raw = {"Métrica": "Puntaje alcance"}
+
+    for prov in todos_provs:
+        df_prov = df_alc_all[df_alc_all["Proveedor"] == prov]
+        total = len(df_prov)
+        if total == 0:
+            fila_fmt[prov] = "0.00%"
+            fila_raw[prov] = 0.0
+            continue
+
+        # % cumplimiento: proporción de SI en columna C
+        n_si = (df_prov["Respuesta_C"] == "SI").sum()
+        pct_si = (n_si / total) * 100
+
+        # % calidad: promedio de pesos de columna E normalizado a 0–100
+        if max_k > 0:
+            pct_cal = df_prov["Respuesta_E"].map(
+                lambda v: pesos_k.get(v, 0.0)
+            ).mean() / max_k * 100
+        else:
+            pct_cal = 0.0
+
+        puntaje = round(
+            (pct_si * peso_total_cumplimiento + pct_cal * peso_total_calidad) * peso_alcance,
+            2
+        )
+        fila_fmt[prov] = f"{puntaje:.2f}%"
+        fila_raw[prov] = puntaje
+
+    filas_fmt.append(fila_fmt)
+    filas_raw.append(fila_raw)
+    return pd.DataFrame(filas_fmt), pd.DataFrame(filas_raw)
+
+
+# =========================
 # UI
 # =========================
 st.set_page_config(layout="wide")
@@ -758,7 +832,7 @@ with st.sidebar:
 
     st.divider()
     st.markdown("**Peso alcance:**")
-    st.caption("Rango: 0 a 100 — se aplica multiplicando el porcentaje de SI en la tabla de alcance de servicios")
+    st.caption("Rango: 0 a 100 — se aplica en la fórmula: (% SI × peso_cum + % calidad × peso_cal) × peso_alcance")
     _peso_alcance_pct = st.number_input(
         "Peso alcance — rango: 0 a 100, pred: 100",
         min_value=0, max_value=100, step=5,
@@ -862,8 +936,9 @@ if archivos and not st.session_state["archivos_cargados"]:
         if df_exp_oferente_raw is not None and not df_exp_oferente_raw.empty:
             data_experiencia_oferente_raw.append(df_exp_oferente_raw)
 
+        # Alcance de servicios: ahora devuelve Respuesta_C y Respuesta_E
         df_alcance = analizar_hoja_alcance_servicios(wb_exp, proveedor)
-        if df_alcance is not None:
+        if df_alcance is not None and not df_alcance.empty:
             data_alcance_servicios.append(df_alcance)
 
         df_alcance_raw_completo = analizar_hoja_alcance_servicios_raw(wb_exp, proveedor)
@@ -1581,51 +1656,38 @@ if st.session_state["archivos_cargados"]:
 
     # ---- ALCANCE DE SERVICIOS ----
     st.markdown("#### Alcance de servicios")
-    if data_alcance_servicios:
-        df_alc_all = pd.concat(data_alcance_servicios, ignore_index=True)
-        df_alc_all = df_alc_all[df_alc_all["Respuesta"] != ""]
+    st.caption(
+        "Fórmula: (% de SI × Peso total cumplimiento + % de calidad col E × Peso total calidad) × Peso alcance"
+    )
 
-        todos_provs_alc = nombres_proveedores if nombres_proveedores else sorted(df_alc_all["Proveedor"].unique())
+    # Recuperar pesos activos del sidebar
+    _ptcum_alc  = st.session_state.get("ni_peso_total_cum", 100) / 100
+    _ptcal_alc  = st.session_state.get("ni_peso_total_cal", 100) / 100
+    _pa_alc     = st.session_state.get("ni_peso_alcance",   100) / 100
 
-        conteo = (
-            df_alc_all.groupby(["Proveedor", "Respuesta"]).size()
-            .unstack(fill_value=0)
-        )
-        for col in ["SI", "NO"]:
-            if col not in conteo.columns:
-                conteo[col] = 0
-        conteo = conteo[["SI", "NO"]]
-        conteo = conteo.reindex(todos_provs_alc, fill_value=0)
-        total_por_prov = conteo.sum(axis=1)
+    _pesos_k_alc = {
+        "COMPLETA":               st.session_state.get("ni_k_completa",               100) / 100,
+        "CASI COMPLETA":          st.session_state.get("ni_k_casi_completa",           75) / 100,
+        "PARCIALMENTE COMPLETA":  st.session_state.get("ni_k_parcialmente_completa",   50) / 100,
+        "INCOMPLETA":             st.session_state.get("ni_k_incompleta",              25) / 100,
+        "TOTALMENTE INCOMPLETA":  st.session_state.get("ni_k_totalmente_incompleta",    0) / 100,
+        "VACIO": 0.0,
+    }
 
-        _pa = st.session_state.get("param_peso_alcance_raw", _peso_alcance_pct) / 100
+    df_alcance_tabla_fmt, df_alcance_tabla_raw = calcular_tabla_alcance(
+        data_alcance_servicios,
+        nombres_proveedores,
+        _pesos_k_alc,
+        _ptcum_alc,
+        _ptcal_alc,
+        _pa_alc,
+    )
 
-        filas = []
-        for resp in ["SI"]:
-            fila = {"Respuesta": resp}
-            for prov in todos_provs_alc:
-                total = total_por_prov[prov]
-                pct = round(conteo.loc[prov, resp] / total * 100, 2) if total > 0 else 0.0
-                pct = round(pct * _pa, 2)
-                fila[prov] = f"{pct:.2f}%"
-            filas.append(fila)
-
-        df_alcance_tabla = pd.DataFrame(filas)
-        st.dataframe(df_alcance_tabla, use_container_width=True, key="df_alcance_servicios")
-
-        filas_raw = []
-        for resp in ["SI"]:
-            fila = {"Respuesta": resp}
-            for prov in todos_provs_alc:
-                total = total_por_prov[prov]
-                pct = round(conteo.loc[prov, resp] / total * 100, 2) if total > 0 else 0.0
-                pct = round(pct * _pa, 2)
-                fila[prov] = pct
-            filas_raw.append(fila)
-        df_alcance_raw = pd.DataFrame(filas_raw)
+    if df_alcance_tabla_fmt is not None:
+        st.dataframe(df_alcance_tabla_fmt, use_container_width=True, key="df_alcance_servicios")
         boton_descarga(
             "⬇️ Descargar alcance de servicios",
-            {"Alcance de servicios": df_alcance_raw},
+            {"Alcance de servicios": df_alcance_tabla_raw},
             "alcance_servicios.xlsx",
             "dl_alcance_servicios"
         )
@@ -1757,7 +1819,6 @@ if st.session_state["archivos_cargados"]:
                 aggfunc="first"
             ).fillna(0).reset_index()
 
-            # Tabla calidad si existe
             df_pivot_cal = None
             if hoja_det in detalles_globales_k:
                 df_det_k = pd.concat(detalles_globales_k[hoja_det])
@@ -1770,32 +1831,25 @@ if st.session_state["archivos_cargados"]:
                 ).fillna(0).reset_index()
 
             sheet_name = f"Detalle de la hoja {hoja_det}"[:31]
-            # Escribir ambas tablas con títulos en la misma hoja
             ws_det = writer.book.create_sheet(sheet_name)
             fila_ws = 1
-            # Título cumplimiento
             ws_det.cell(row=fila_ws, column=1, value="Cumplimiento por requerimiento").font = openpyxl.styles.Font(bold=True, size=11)
             fila_ws += 1
-            # Cabecera
             for ci, col_name in enumerate(df_pivot_cum.columns, start=1):
                 ws_det.cell(row=fila_ws, column=ci, value=col_name).font = openpyxl.styles.Font(bold=True)
             fila_ws += 1
-            # Datos cumplimiento
             for _, row in df_pivot_cum.iterrows():
                 for ci, val in enumerate(row, start=1):
                     ws_det.cell(row=fila_ws, column=ci, value=val)
                 fila_ws += 1
 
             if df_pivot_cal is not None:
-                fila_ws += 1  # fila en blanco de separación
-                # Título calidad
+                fila_ws += 1
                 ws_det.cell(row=fila_ws, column=1, value="Calidad por requerimiento").font = openpyxl.styles.Font(bold=True, size=11)
                 fila_ws += 1
-                # Cabecera
                 for ci, col_name in enumerate(df_pivot_cal.columns, start=1):
                     ws_det.cell(row=fila_ws, column=ci, value=col_name).font = openpyxl.styles.Font(bold=True)
                 fila_ws += 1
-                # Datos calidad
                 for _, row in df_pivot_cal.iterrows():
                     for ci, val in enumerate(row, start=1):
                         ws_det.cell(row=fila_ws, column=ci, value=val)
@@ -1812,7 +1866,6 @@ if st.session_state["archivos_cargados"]:
                 aggfunc="first"
             ).fillna(0).reset_index()
 
-            # Tabla calidad si existe
             df_pivot_cal = None
             if hoja_det in detalles_globales_k_nf:
                 df_det_k = pd.concat(detalles_globales_k_nf[hoja_det])
@@ -1825,32 +1878,25 @@ if st.session_state["archivos_cargados"]:
                 ).fillna(0).reset_index()
 
             sheet_name = f"Detalle de la hoja {hoja_det}"[:31]
-            # Escribir ambas tablas con títulos en la misma hoja
             ws_det = writer.book.create_sheet(sheet_name)
             fila_ws = 1
-            # Título cumplimiento
             ws_det.cell(row=fila_ws, column=1, value="Cumplimiento por requerimiento").font = openpyxl.styles.Font(bold=True, size=11)
             fila_ws += 1
-            # Cabecera
             for ci, col_name in enumerate(df_pivot_cum.columns, start=1):
                 ws_det.cell(row=fila_ws, column=ci, value=col_name).font = openpyxl.styles.Font(bold=True)
             fila_ws += 1
-            # Datos cumplimiento
             for _, row in df_pivot_cum.iterrows():
                 for ci, val in enumerate(row, start=1):
                     ws_det.cell(row=fila_ws, column=ci, value=val)
                 fila_ws += 1
 
             if df_pivot_cal is not None:
-                fila_ws += 1  # fila en blanco de separación
-                # Título calidad
+                fila_ws += 1
                 ws_det.cell(row=fila_ws, column=1, value="Calidad por requerimiento").font = openpyxl.styles.Font(bold=True, size=11)
                 fila_ws += 1
-                # Cabecera
                 for ci, col_name in enumerate(df_pivot_cal.columns, start=1):
                     ws_det.cell(row=fila_ws, column=ci, value=col_name).font = openpyxl.styles.Font(bold=True)
                 fila_ws += 1
-                # Datos calidad
                 for _, row in df_pivot_cal.iterrows():
                     for ci, val in enumerate(row, start=1):
                         ws_det.cell(row=fila_ws, column=ci, value=val)
@@ -1860,7 +1906,6 @@ if st.session_state["archivos_cargados"]:
         _safe_to_excel(df_final,   writer, "F - Comparativo")
         _safe_to_excel(df_final_k, writer, "F - Calidad por hoja")
 
-        # Hoja "F - Total integrado": detalle por hoja + fila TOTAL
         _df_integ_func  = st.session_state.get("df_integrado_func")
         _df_total_integ_func = st.session_state.get("df_total_integrado_func")
         if _df_integ_func is not None and not _df_integ_func.empty:
@@ -1876,7 +1921,6 @@ if st.session_state["archivos_cargados"]:
         _safe_to_excel(df_final_nf,   writer, "NF - Comparativo")
         _safe_to_excel(df_final_k_nf, writer, "NF - Calidad por hoja")
 
-        # Hoja "NF - Total integrado": detalle por hoja + fila TOTAL
         _df_integ_nf       = st.session_state.get("df_integrado_nf")
         _df_total_integ_nf = st.session_state.get("df_total_integrado_nf")
         if _df_integ_nf is not None and not _df_integ_nf.empty:
@@ -1896,32 +1940,33 @@ if st.session_state["archivos_cargados"]:
         if data_experiencia:
             _safe_to_excel(pivot_sector, writer, "Exp - Por sector")
 
-        # ── Alcance de servicios ────────────────────────────────────────────
-        if data_alcance_servicios:
-            _alc_all = pd.concat(data_alcance_servicios, ignore_index=True)
-            _alc_all = _alc_all[_alc_all["Respuesta"] != ""]
-            _provs_alc = nombres_proveedores if nombres_proveedores else sorted(_alc_all["Proveedor"].unique())
-            _conteo_alc = (
-                _alc_all.groupby(["Proveedor", "Respuesta"]).size()
-                .unstack(fill_value=0)
-            )
-            for _col in ["SI", "NO"]:
-                if _col not in _conteo_alc.columns:
-                    _conteo_alc[_col] = 0
-            _conteo_alc = _conteo_alc[["SI", "NO"]].reindex(_provs_alc, fill_value=0)
-            _total_alc = _conteo_alc.sum(axis=1)
-            _filas_alc = []
-            for _resp in ["SI"]:
-                _fila = {"Respuesta": _resp}
-                for _prov in _provs_alc:
-                    _t = _total_alc[_prov]
-                    _pct = round(_conteo_alc.loc[_prov, _resp] / _t * 100, 2) if _t > 0 else 0.0
-                    _fila[_prov] = round(_pct * (_peso_alcance_pct / 100), 2)
-                _filas_alc.append(_fila)
-            if data_alcance_servicios_raw:
-                df_alc_raw_export = pd.concat(data_alcance_servicios_raw, ignore_index=True)
-                _safe_to_excel(df_alc_raw_export, writer, "Alcance de servicios - completo")
-            _safe_to_excel(pd.DataFrame(_filas_alc), writer, "Alcance de servicios")
+        # ── Alcance de servicios — nuevo cálculo ────────────────────────────
+        if data_alcance_servicios_raw:
+            df_alc_raw_export = pd.concat(data_alcance_servicios_raw, ignore_index=True)
+            _safe_to_excel(df_alc_raw_export, writer, "Alcance de servicios - completo")
+
+        # Recalcular usando los mismos pesos activos para el reporte
+        _ptcum_rep = st.session_state.get("param_peso_total_cumplimiento_raw", 100) / 100
+        _ptcal_rep = st.session_state.get("param_peso_total_calidad_raw",      100) / 100
+        _pa_rep    = st.session_state.get("param_peso_alcance_raw",            100) / 100
+        _pesos_k_rep = {
+            "COMPLETA":               st.session_state.get("ni_k_completa",               100) / 100,
+            "CASI COMPLETA":          st.session_state.get("ni_k_casi_completa",           75)  / 100,
+            "PARCIALMENTE COMPLETA":  st.session_state.get("ni_k_parcialmente_completa",   50)  / 100,
+            "INCOMPLETA":             st.session_state.get("ni_k_incompleta",              25)  / 100,
+            "TOTALMENTE INCOMPLETA":  st.session_state.get("ni_k_totalmente_incompleta",    0)  / 100,
+            "VACIO": 0.0,
+        }
+        _, df_alc_export_raw = calcular_tabla_alcance(
+            data_alcance_servicios,
+            nombres_proveedores,
+            _pesos_k_rep,
+            _ptcum_rep,
+            _ptcal_rep,
+            _pa_rep,
+        )
+        if df_alc_export_raw is not None:
+            _safe_to_excel(df_alc_export_raw, writer, "Alcance de servicios")
 
         # ── Metodología ─────────────────────────────────────────────────────
         if data_metodologia:
