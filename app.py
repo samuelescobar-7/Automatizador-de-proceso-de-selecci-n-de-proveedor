@@ -2081,10 +2081,26 @@ if st.session_state["archivos_cargados"]:
         if df_alc_export_raw is not None:
             _safe_to_excel(df_alc_export_raw, writer, "Alcance de servicios")
 
-        # ── Metodología ─────────────────────────────────────────────────────
+        # ── Metodología — pivot: Elemento | Proveedor1 | Proveedor2 | ... ──
         if data_metodologia_raw:
             df_met_raw_export = pd.concat(data_metodologia_raw, ignore_index=True)
-            _safe_to_excel(df_met_raw_export, writer, "Metodologia - completa")
+            # Pivot: una fila por elemento, una columna por proveedor con SI/NO
+            df_met_pivot = (
+                df_met_raw_export[["Proveedor", "Elemento de la Metodología", "Incluido (SI/NO)"]]
+                .pivot_table(
+                    index="Elemento de la Metodología",
+                    columns="Proveedor",
+                    values="Incluido (SI/NO)",
+                    aggfunc="first"
+                )
+                .reset_index()
+            )
+            df_met_pivot.columns.name = None
+            cols_met = ["Elemento de la Metodología"] + [
+                p for p in nombres_proveedores if p in df_met_pivot.columns
+            ]
+            df_met_pivot = df_met_pivot[cols_met]
+            _safe_to_excel(df_met_pivot, writer, "Metodologia - completa")
 
         _ptcum_rep_met = st.session_state.get("param_peso_total_cumplimiento_raw", 100) / 100
         _ptcal_rep_met = st.session_state.get("param_peso_total_calidad_raw",      100) / 100
