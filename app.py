@@ -389,9 +389,10 @@ def analizar_hoja_metodologia_raw(wb, proveedor):
         "Elemento de la Metodología",
         "Incluido (SI/NO)",
         "Explicación o Descripción Adicional (Especificar página de la propuesta si existe información adicional sobre este ítem en ella)",
+        "Calidad",
     ]
     COL_INICIO = 2
-    COL_FIN = 4
+    COL_FIN = 5
 
     hoja_nombre = next((s for s in wb.sheetnames if s.strip().startswith("7.")), None)
     if hoja_nombre is None:
@@ -2081,11 +2082,12 @@ if st.session_state["archivos_cargados"]:
         if df_alc_export_raw is not None:
             _safe_to_excel(df_alc_export_raw, writer, "Alcance de servicios")
 
-        # ── Metodología — pivot: Elemento | Proveedor1 | Proveedor2 | ... ──
+        # ── Metodología — dos pivots en la misma hoja ──────────────────────
         if data_metodologia_raw:
             df_met_raw_export = pd.concat(data_metodologia_raw, ignore_index=True)
-            # Pivot: una fila por elemento, una columna por proveedor con SI/NO
-            df_met_pivot = (
+
+            # Pivot 1: Incluido (SI/NO)
+            df_met_pivot_sino = (
                 df_met_raw_export[["Proveedor", "Elemento de la Metodología", "Incluido (SI/NO)"]]
                 .pivot_table(
                     index="Elemento de la Metodología",
@@ -2095,12 +2097,43 @@ if st.session_state["archivos_cargados"]:
                 )
                 .reset_index()
             )
-            df_met_pivot.columns.name = None
-            cols_met = ["Elemento de la Metodología"] + [
-                p for p in nombres_proveedores if p in df_met_pivot.columns
+            df_met_pivot_sino.columns.name = None
+            cols_met_sino = ["Elemento de la Metodología"] + [
+                p for p in nombres_proveedores if p in df_met_pivot_sino.columns
             ]
-            df_met_pivot = df_met_pivot[cols_met]
-            _safe_to_excel(df_met_pivot, writer, "Metodologia - completa")
+            df_met_pivot_sino = df_met_pivot_sino[cols_met_sino]
+
+            # Pivot 2: Calidad (columna E)
+            df_met_pivot_cal = (
+                df_met_raw_export[["Proveedor", "Elemento de la Metodología", "Calidad"]]
+                .pivot_table(
+                    index="Elemento de la Metodología",
+                    columns="Proveedor",
+                    values="Calidad",
+                    aggfunc="first"
+                )
+                .reset_index()
+            )
+            df_met_pivot_cal.columns.name = None
+            cols_met_cal = ["Elemento de la Metodología"] + [
+                p for p in nombres_proveedores if p in df_met_pivot_cal.columns
+            ]
+            df_met_pivot_cal = df_met_pivot_cal[cols_met_cal]
+
+            # Escribir ambas tablas en la misma hoja
+            ws_met = writer.book.create_sheet("Metodologia - completa")
+
+            fila_ws = 1
+            fila_ws = _write_pivot_block(ws_met, df_met_pivot_sino, "Incluido (SI/NO) por proveedor", fila_ws)
+            fila_ws = _write_pivot_block(ws_met, df_met_pivot_cal,  "Calidad por proveedor",          fila_ws)
+
+            # Ajustar anchos de columna
+            for col in ws_met.columns:
+                max_len = max(
+                    (len(str(cell.value)) for cell in col if cell.value is not None),
+                    default=0
+                )
+                ws_met.column_dimensions[col[0].column_letter].width = min(max_len + 4, 60)
 
         _ptcum_rep_met = st.session_state.get("param_peso_total_cumplimiento_raw", 100) / 100
         _ptcal_rep_met = st.session_state.get("param_peso_total_calidad_raw",      100) / 100
