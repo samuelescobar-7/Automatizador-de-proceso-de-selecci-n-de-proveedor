@@ -78,12 +78,14 @@ def analizar_hoja(ws, pesos_f, peso_col_f, peso_col_g):
     for r in detectar_filas(ws):
         resp_f = leer_respuesta(ws, r, COL_RESPUESTA_F, VALID_RESPUESTAS_F)
         resp_g = leer_respuesta(ws, r, COL_RESPUESTA_G, VALID_RESPUESTAS_G)
+        id_req = ws.cell(r, 1).value
         requerimiento = ws.cell(r, 4).value
         peso_f = pesos_f.get(resp_f, 0.0)
         peso_g = peso_col_g if resp_g == "SI" else 0.0
         data.append({
             "Hoja": ws.title,
             "Fila": r,
+            "ID": str(id_req).strip() if id_req is not None else "",
             "Requerimiento": requerimiento,
             "Peso_F": peso_f,
             "Peso_G": peso_g,
@@ -103,11 +105,13 @@ def analizar_hoja_k(ws, pesos_k):
     data = []
     for r in detectar_filas(ws):
         resp_k = leer_respuesta(ws, r, COL_RESPUESTA_K, VALID_RESPUESTAS_K)
+        id_req = ws.cell(r, 1).value
         requerimiento = ws.cell(r, 4).value
         peso_k = pesos_k.get(resp_k, 0.0)
         data.append({
             "Hoja": ws.title,
             "Fila": r,
+            "ID": str(id_req).strip() if id_req is not None else "",
             "Requerimiento": requerimiento,
             "Peso_K": peso_k
         })
@@ -649,31 +653,38 @@ def _safe_to_excel(df, writer, sheet_name):
 # el orden exacto en que aparecen los requerimientos en el archivo original.
 # =========================
 def _orden_requerimientos(lista_dfs):
-    """Devuelve los requerimientos en el orden original del archivo fuente."""
+    """Devuelve lista de (ID, Requerimiento) en el orden original del archivo fuente."""
     df_ref = lista_dfs[0].sort_values("Fila")
-    return list(dict.fromkeys(df_ref["Requerimiento"].tolist()))
+    pares = list(zip(df_ref["ID"].tolist(), df_ref["Requerimiento"].tolist()))
+    return list(dict.fromkeys(pares))
 
 
 # =========================
 # HELPER: pivot de requerimientos preservando orden original
 # =========================
-def _pivot_ordenado(df_datos, col_valor, index_col, orden):
+def _pivot_ordenado(df_datos, col_valor, orden):
     """
-    Hace pivot_table y luego reordena el índice según `orden`
-    (lista de valores en el orden original del archivo fuente).
+    Hace pivot usando (ID, Requerimiento) como índice y reordena según `orden`
+    (lista de tuplas (id, req) en el orden original del archivo fuente).
     """
+    df_idx = df_datos.copy()
+    df_idx["_idx"] = list(zip(df_idx["ID"], df_idx["Requerimiento"]))
     pivot = (
-        df_datos.pivot_table(
-            index=index_col,
+        df_idx.pivot_table(
+            index="_idx",
             columns="Proveedor",
             values=col_valor,
             aggfunc="first"
         )
         .fillna(0)
-        .reindex(orden)          # ← preserva orden original
+        .reindex(orden)
         .reset_index()
     )
     pivot.columns.name = None
+    # Descomponer tupla en columnas ID y Requerimiento
+    pivot.insert(0, "ID", pivot["_idx"].apply(lambda t: t[0]))
+    pivot.insert(1, "Requerimiento", pivot["_idx"].apply(lambda t: t[1]))
+    pivot = pivot.drop(columns=["_idx"])
     return pivot
 
 
@@ -1099,18 +1110,19 @@ if st.session_state["archivos_cargados"]:
 
         if det_df is not None:
             st.markdown("#### Cumplimiento por requerimiento")
+
             _df = det_df.copy()
             _df["Cumplimiento_%"] = _df["Peso_Total"] * 100
+
             # ── Orden original: usar columna "Fila" del primer proveedor ──
-            _orden_reqs = _orden_requerimientos(
-                [det_df[det_df["Proveedor"] == p]
-                 for p in det_df["Proveedor"].unique()
-                 if not det_df[det_df["Proveedor"] == p].empty]
-            )
-            _pivot = _pivot_ordenado(_df, "Cumplimiento_%", "Requerimiento", _orden_reqs)
+            _proveedores_det = _df["Proveedor"].unique().tolist()
+            _lista_dfs_det = [_df[_df["Proveedor"] == p] for p in _proveedores_det if not _df[_df["Proveedor"] == p].empty]
+            _orden_reqs = _orden_requerimientos(_lista_dfs_det)
+
+            _pivot = _pivot_ordenado(_df, "Cumplimiento_%", _orden_reqs)
             _pivot_fmt = _pivot.copy()
             for c in _pivot_fmt.columns:
-                if c != "Requerimiento":
+                if c not in ("ID", "Requerimiento"):
                     _pivot_fmt[c] = _pivot_fmt[c].apply(lambda x: f"{x:.2f}%")
             st.dataframe(_pivot_fmt, use_container_width=True)
             st.download_button("⬇️ Descargar cumplimiento por requerimiento",
@@ -1118,6 +1130,7 @@ if st.session_state["archivos_cargados"]:
                                file_name=f"cumplimiento_requerimiento_{hoja_d}.xlsx",
                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                                key="dl_det_pivot_cum")
+
             _resumen = det_df.groupby("Proveedor")["Peso_Total"].mean().mul(100).round(2).reset_index()
             _resumen_fmt = _resumen.copy()
             _resumen_fmt["Cumplimiento_%"] = _resumen_fmt["Peso_Total"].apply(lambda x: f"{x:.2f}%")
@@ -1132,18 +1145,19 @@ if st.session_state["archivos_cargados"]:
 
         if det_df_k is not None:
             st.markdown("#### Calidad por requerimiento")
+
             _df_k = det_df_k.copy()
             _df_k["Calidad_%"] = _df_k["Peso_K"] * 100
+
             # ── Orden original: usar columna "Fila" ──
-            _orden_reqs_k = _orden_requerimientos(
-                [det_df_k[det_df_k["Proveedor"] == p]
-                 for p in det_df_k["Proveedor"].unique()
-                 if not det_df_k[det_df_k["Proveedor"] == p].empty]
-            )
-            _pivot_k = _pivot_ordenado(_df_k, "Calidad_%", "Requerimiento", _orden_reqs_k)
+            _proveedores_det_k = _df_k["Proveedor"].unique().tolist()
+            _lista_dfs_det_k = [_df_k[_df_k["Proveedor"] == p] for p in _proveedores_det_k if not _df_k[_df_k["Proveedor"] == p].empty]
+            _orden_reqs_k = _orden_requerimientos(_lista_dfs_det_k)
+
+            _pivot_k = _pivot_ordenado(_df_k, "Calidad_%", _orden_reqs_k)
             _pivot_k_fmt = _pivot_k.copy()
             for c in _pivot_k_fmt.columns:
-                if c != "Requerimiento":
+                if c not in ("ID", "Requerimiento"):
                     _pivot_k_fmt[c] = _pivot_k_fmt[c].apply(lambda x: f"{x:.2f}%")
             st.dataframe(_pivot_k_fmt, use_container_width=True)
             st.download_button("⬇️ Descargar calidad por requerimiento",
@@ -1151,6 +1165,7 @@ if st.session_state["archivos_cargados"]:
                                file_name=f"calidad_requerimiento_{hoja_d}.xlsx",
                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                                key="dl_det_pivot_cal")
+
             _resumen_k = det_df_k.groupby("Proveedor")["Peso_K"].mean().mul(100).round(2).reset_index()
             _resumen_k_fmt = _resumen_k.copy()
             _resumen_k_fmt["Calidad_%"] = _resumen_k_fmt["Peso_K"].apply(lambda x: f"{x:.2f}%")
@@ -1881,7 +1896,7 @@ if st.session_state["archivos_cargados"]:
             # Orden original: primer proveedor ordenado por número de fila
             orden_reqs = _orden_requerimientos(lista_dfs)
 
-            df_pivot_cum = _pivot_ordenado(df_det, "Cumplimiento_%", "Requerimiento", orden_reqs)
+            df_pivot_cum = _pivot_ordenado(df_det, "Cumplimiento_%", orden_reqs)
 
             df_pivot_cal = None
             if hoja_det in detalles_globales_k:
@@ -1889,7 +1904,7 @@ if st.session_state["archivos_cargados"]:
                 df_det_k = pd.concat(lista_dfs_k)
                 df_det_k["Calidad_%"] = df_det_k["Peso_K"] * 100
                 orden_reqs_k = _orden_requerimientos(lista_dfs_k)
-                df_pivot_cal = _pivot_ordenado(df_det_k, "Calidad_%", "Requerimiento", orden_reqs_k)
+                df_pivot_cal = _pivot_ordenado(df_det_k, "Calidad_%", orden_reqs_k)
 
             sheet_name = f"Detalle de la hoja {hoja_det}"[:31]
             ws_det = writer.book.create_sheet(sheet_name)
@@ -1904,7 +1919,7 @@ if st.session_state["archivos_cargados"]:
             df_det["Cumplimiento_%"] = df_det["Peso_Total"] * 100
 
             orden_reqs = _orden_requerimientos(lista_dfs)
-            df_pivot_cum = _pivot_ordenado(df_det, "Cumplimiento_%", "Requerimiento", orden_reqs)
+            df_pivot_cum = _pivot_ordenado(df_det, "Cumplimiento_%", orden_reqs)
 
             df_pivot_cal = None
             if hoja_det in detalles_globales_k_nf:
@@ -1912,7 +1927,7 @@ if st.session_state["archivos_cargados"]:
                 df_det_k = pd.concat(lista_dfs_k)
                 df_det_k["Calidad_%"] = df_det_k["Peso_K"] * 100
                 orden_reqs_k = _orden_requerimientos(lista_dfs_k)
-                df_pivot_cal = _pivot_ordenado(df_det_k, "Calidad_%", "Requerimiento", orden_reqs_k)
+                df_pivot_cal = _pivot_ordenado(df_det_k, "Calidad_%", orden_reqs_k)
 
             sheet_name = f"Detalle de la hoja {hoja_det}"[:31]
             ws_det = writer.book.create_sheet(sheet_name)
@@ -1959,11 +1974,8 @@ if st.session_state["archivos_cargados"]:
         if data_alcance_servicios_raw:
             df_alc_raw_export = pd.concat(data_alcance_servicios_raw, ignore_index=True)
 
-            # Orden original: primera aparición de cada servicio en el DataFrame
-            # (los datos se leen en orden de fila, así que el orden de concat es el original)
             orden_servicios = list(dict.fromkeys(df_alc_raw_export["Servicio"].tolist()))
 
-            # Pivot 1: Incluido (SI/NO)
             df_alc_pivot_sino = (
                 df_alc_raw_export[["Proveedor", "Servicio", "Incluido (SI/NO)"]]
                 .pivot_table(
@@ -1972,14 +1984,13 @@ if st.session_state["archivos_cargados"]:
                     values="Incluido (SI/NO)",
                     aggfunc="first"
                 )
-                .reindex(orden_servicios)          # ← preserva orden original
+                .reindex(orden_servicios)
                 .reset_index()
             )
             df_alc_pivot_sino.columns.name = None
             cols_sino = ["Servicio"] + [p for p in nombres_proveedores if p in df_alc_pivot_sino.columns]
             df_alc_pivot_sino = df_alc_pivot_sino[cols_sino]
 
-            # Pivot 2: Calidad (columna E)
             df_alc_pivot_cal = (
                 df_alc_raw_export[["Proveedor", "Servicio", "Calidad"]]
                 .pivot_table(
@@ -1988,7 +1999,7 @@ if st.session_state["archivos_cargados"]:
                     values="Calidad",
                     aggfunc="first"
                 )
-                .reindex(orden_servicios)          # ← preserva orden original
+                .reindex(orden_servicios)
                 .reset_index()
             )
             df_alc_pivot_cal.columns.name = None
@@ -2029,12 +2040,10 @@ if st.session_state["archivos_cargados"]:
         if data_metodologia_raw:
             df_met_raw_export = pd.concat(data_metodologia_raw, ignore_index=True)
 
-            # Orden original: primera aparición de cada elemento en el DataFrame
             orden_elementos = list(dict.fromkeys(
                 df_met_raw_export["Elemento de la Metodología"].tolist()
             ))
 
-            # Pivot 1: Incluido (SI/NO)
             df_met_pivot_sino = (
                 df_met_raw_export[["Proveedor", "Elemento de la Metodología", "Incluido (SI/NO)"]]
                 .pivot_table(
@@ -2043,7 +2052,7 @@ if st.session_state["archivos_cargados"]:
                     values="Incluido (SI/NO)",
                     aggfunc="first"
                 )
-                .reindex(orden_elementos)          # ← preserva orden original
+                .reindex(orden_elementos)
                 .reset_index()
             )
             df_met_pivot_sino.columns.name = None
@@ -2052,7 +2061,6 @@ if st.session_state["archivos_cargados"]:
             ]
             df_met_pivot_sino = df_met_pivot_sino[cols_met_sino]
 
-            # Pivot 2: Calidad (columna E)
             df_met_pivot_cal = (
                 df_met_raw_export[["Proveedor", "Elemento de la Metodología", "Calidad"]]
                 .pivot_table(
@@ -2061,7 +2069,7 @@ if st.session_state["archivos_cargados"]:
                     values="Calidad",
                     aggfunc="first"
                 )
-                .reindex(orden_elementos)          # ← preserva orden original
+                .reindex(orden_elementos)
                 .reset_index()
             )
             df_met_pivot_cal.columns.name = None

@@ -17,15 +17,37 @@ st.subheader(f"Hoja: {hoja}")
 
 
 # =========================
-# HELPER
+# HELPERS
 # =========================
 def df_to_excel_bytes(dfs: dict) -> bytes:
-    """Recibe un dict {nombre_hoja: df} y retorna bytes del Excel."""
     buf = BytesIO()
     with pd.ExcelWriter(buf, engine="openpyxl") as writer:
         for sheet_name, df in dfs.items():
             df.to_excel(writer, index=False, sheet_name=sheet_name)
     return buf.getvalue()
+
+
+def _orden_requerimientos(lista_dfs):
+    """Devuelve los requerimientos en el orden original del archivo fuente (por columna Fila)."""
+    df_ref = lista_dfs[0].sort_values("Fila")
+    return list(dict.fromkeys(df_ref["Requerimiento"].tolist()))
+
+
+def _pivot_ordenado(df_datos, col_valor, index_col, orden):
+    """Hace pivot_table y reordena el índice según el orden original del archivo fuente."""
+    pivot = (
+        df_datos.pivot_table(
+            index=index_col,
+            columns="Proveedor",
+            values=col_valor,
+            aggfunc="first"
+        )
+        .fillna(0)
+        .reindex(orden)
+        .reset_index()
+    )
+    pivot.columns.name = None
+    return pivot
 
 
 # =========================
@@ -37,12 +59,12 @@ if detalle_df is not None:
     df = detalle_df.copy()
     df["Cumplimiento_%"] = df["Peso_Total"] * 100
 
-    df_pivot = df.pivot_table(
-        index="Requerimiento",
-        columns="Proveedor",
-        values="Cumplimiento_%",
-        aggfunc="first"
-    ).fillna(0).reset_index()
+    # Orden original: usar columna "Fila" del primer proveedor
+    _proveedores = df["Proveedor"].unique().tolist()
+    _lista_dfs = [df[df["Proveedor"] == p] for p in _proveedores if not df[df["Proveedor"] == p].empty]
+    _orden_reqs = _orden_requerimientos(_lista_dfs)
+
+    df_pivot = _pivot_ordenado(df, "Cumplimiento_%", "Requerimiento", _orden_reqs)
 
     df_pivot_fmt = df_pivot.copy()
     for col in df_pivot_fmt.columns:
@@ -83,12 +105,12 @@ if detalle_df_k is not None:
     df_k = detalle_df_k.copy()
     df_k["Calidad_%"] = df_k["Peso_K"] * 100
 
-    df_pivot_k = df_k.pivot_table(
-        index="Requerimiento",
-        columns="Proveedor",
-        values="Calidad_%",
-        aggfunc="first"
-    ).fillna(0).reset_index()
+    # Orden original: usar columna "Fila" del primer proveedor
+    _proveedores_k = df_k["Proveedor"].unique().tolist()
+    _lista_dfs_k = [df_k[df_k["Proveedor"] == p] for p in _proveedores_k if not df_k[df_k["Proveedor"] == p].empty]
+    _orden_reqs_k = _orden_requerimientos(_lista_dfs_k)
+
+    df_pivot_k = _pivot_ordenado(df_k, "Calidad_%", "Requerimiento", _orden_reqs_k)
 
     df_pivot_k_fmt = df_pivot_k.copy()
     for col in df_pivot_k_fmt.columns:
