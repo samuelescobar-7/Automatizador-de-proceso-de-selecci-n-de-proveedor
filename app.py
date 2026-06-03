@@ -1995,10 +1995,27 @@ if st.session_state["archivos_cargados"]:
         if data_experiencia:
             _safe_to_excel(pivot_sector, writer, "Exp - Por sector")
 
-        # ── Alcance de servicios — nuevo cálculo ────────────────────────────
+        # ── Alcance de servicios — pivot Servicio × Proveedor ───────────────
         if data_alcance_servicios_raw:
             df_alc_raw_export = pd.concat(data_alcance_servicios_raw, ignore_index=True)
-            _safe_to_excel(df_alc_raw_export, writer, "Alcance de servicios - completo")
+            # Pivot: una fila por Servicio, una columna por Proveedor con SI/NO
+            df_alc_pivot = (
+                df_alc_raw_export[["Proveedor", "Servicio", "Incluido (SI/NO)"]]
+                .pivot_table(
+                    index="Servicio",
+                    columns="Proveedor",
+                    values="Incluido (SI/NO)",
+                    aggfunc="first"
+                )
+                .reset_index()
+            )
+            df_alc_pivot.columns.name = None
+            # Respetar el orden de carga de proveedores
+            cols_ordered = ["Servicio"] + [
+                p for p in nombres_proveedores if p in df_alc_pivot.columns
+            ]
+            df_alc_pivot = df_alc_pivot[cols_ordered]
+            _safe_to_excel(df_alc_pivot, writer, "Alcance de servicios - completo")
 
         # Recalcular usando los mismos pesos activos para el reporte
         _ptcum_rep = st.session_state.get("param_peso_total_cumplimiento_raw", 100) / 100
