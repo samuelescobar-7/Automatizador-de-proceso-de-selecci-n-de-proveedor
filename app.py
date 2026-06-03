@@ -322,9 +322,10 @@ def analizar_hoja_alcance_servicios_raw(wb, proveedor):
         "Servicio",
         "Incluido (SI/NO)",
         "Explicación o Descripción Adicional",
+        "Calidad",
     ]
     COL_INICIO = 2
-    COL_FIN = 4
+    COL_FIN = 5
 
     hoja_nombre = next((s for s in wb.sheetnames if s.strip().startswith("6.")), None)
     if hoja_nombre is None:
@@ -1995,11 +1996,12 @@ if st.session_state["archivos_cargados"]:
         if data_experiencia:
             _safe_to_excel(pivot_sector, writer, "Exp - Por sector")
 
-        # ── Alcance de servicios — pivot Servicio × Proveedor ───────────────
+        # ── Alcance de servicios — dos pivots en la misma hoja ─────────────
         if data_alcance_servicios_raw:
             df_alc_raw_export = pd.concat(data_alcance_servicios_raw, ignore_index=True)
-            # Pivot: una fila por Servicio, una columna por Proveedor con SI/NO
-            df_alc_pivot = (
+
+            # Pivot 1: Incluido (SI/NO)
+            df_alc_pivot_sino = (
                 df_alc_raw_export[["Proveedor", "Servicio", "Incluido (SI/NO)"]]
                 .pivot_table(
                     index="Servicio",
@@ -2009,13 +2011,52 @@ if st.session_state["archivos_cargados"]:
                 )
                 .reset_index()
             )
-            df_alc_pivot.columns.name = None
-            # Respetar el orden de carga de proveedores
-            cols_ordered = ["Servicio"] + [
-                p for p in nombres_proveedores if p in df_alc_pivot.columns
-            ]
-            df_alc_pivot = df_alc_pivot[cols_ordered]
-            _safe_to_excel(df_alc_pivot, writer, "Alcance de servicios - completo")
+            df_alc_pivot_sino.columns.name = None
+            cols_sino = ["Servicio"] + [p for p in nombres_proveedores if p in df_alc_pivot_sino.columns]
+            df_alc_pivot_sino = df_alc_pivot_sino[cols_sino]
+
+            # Pivot 2: Calidad (columna E)
+            df_alc_pivot_cal = (
+                df_alc_raw_export[["Proveedor", "Servicio", "Calidad"]]
+                .pivot_table(
+                    index="Servicio",
+                    columns="Proveedor",
+                    values="Calidad",
+                    aggfunc="first"
+                )
+                .reset_index()
+            )
+            df_alc_pivot_cal.columns.name = None
+            cols_cal = ["Servicio"] + [p for p in nombres_proveedores if p in df_alc_pivot_cal.columns]
+            df_alc_pivot_cal = df_alc_pivot_cal[cols_cal]
+
+            # Escribir ambas tablas en la misma hoja con openpyxl
+            ws_alc = writer.book.create_sheet("Alcance de servicios - completo")
+
+            def _write_pivot_block(ws, df, titulo, start_row):
+                """Escribe título + encabezados + filas y devuelve la fila siguiente."""
+                ws.cell(row=start_row, column=1, value=titulo).font = openpyxl.styles.Font(bold=True, size=11)
+                start_row += 1
+                for ci, col_name in enumerate(df.columns, start=1):
+                    ws.cell(row=start_row, column=ci, value=col_name).font = openpyxl.styles.Font(bold=True)
+                start_row += 1
+                for _, row in df.iterrows():
+                    for ci, val in enumerate(row, start=1):
+                        ws.cell(row=start_row, column=ci, value=val)
+                    start_row += 1
+                return start_row + 1  # fila en blanco de separación
+
+            fila_ws = 1
+            fila_ws = _write_pivot_block(ws_alc, df_alc_pivot_sino, "Incluido (SI/NO) por proveedor", fila_ws)
+            fila_ws = _write_pivot_block(ws_alc, df_alc_pivot_cal,  "Calidad por proveedor",          fila_ws)
+
+            # Ajustar anchos de columna
+            for col in ws_alc.columns:
+                max_len = max(
+                    (len(str(cell.value)) for cell in col if cell.value is not None),
+                    default=0
+                )
+                ws_alc.column_dimensions[col[0].column_letter].width = min(max_len + 4, 60)
 
         # Recalcular usando los mismos pesos activos para el reporte
         _ptcum_rep = st.session_state.get("param_peso_total_cumplimiento_raw", 100) / 100
