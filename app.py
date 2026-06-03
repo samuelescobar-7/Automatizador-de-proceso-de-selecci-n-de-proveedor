@@ -347,24 +347,39 @@ def analizar_hoja_alcance_servicios_raw(wb, proveedor):
 
 
 def analizar_hoja_metodologia(wb, proveedor):
+    """
+    Lee la hoja '7. Metodología Implementación'.
+    Columna C (col 3): SI / NO (cumplimiento)
+    Columna E (col 5): COMPLETA / CASI COMPLETA / PARCIALMENTE COMPLETA /
+                       INCOMPLETA / TOTALMENTE INCOMPLETA (calidad)
+    Devuelve un DataFrame con columnas: Respuesta_C, Respuesta_E, Proveedor
+    """
     hoja_nombre = next((s for s in wb.sheetnames if s.strip().startswith("7.")), None)
     if hoja_nombre is None:
-        return pd.DataFrame([{"Respuesta": "", "Proveedor": proveedor}])
+        return pd.DataFrame(columns=["Respuesta_C", "Respuesta_E", "Proveedor"])
     ws = wb[hoja_nombre]
     data = []
-    for r in range(1, ws.max_row + 1):
-        val = ws.cell(r, 3).value
-        if val is None:
+    for r in range(8, ws.max_row + 1):
+        val_c = ws.cell(r, 3).value
+        if val_c is None:
             continue
-        val_norm = str(val).strip().upper()
-        if val_norm not in {"SI", "NO"}:
+        val_c_norm = str(val_c).strip().upper()
+        if val_c_norm not in {"SI", "NO"}:
             continue
         nombre = ws.cell(r, 2).value
         if nombre is None:
             continue
-        data.append({"Respuesta": val_norm, "Proveedor": proveedor})
+        val_e = ws.cell(r, 5).value
+        val_e_norm = str(val_e).strip().upper() if val_e is not None else "VACIO"
+        if val_e_norm not in VALID_RESPUESTAS_K:
+            val_e_norm = "VACIO"
+        data.append({
+            "Respuesta_C": val_c_norm,
+            "Respuesta_E": val_e_norm,
+            "Proveedor": proveedor
+        })
     if not data:
-        return pd.DataFrame([{"Respuesta": "", "Proveedor": proveedor}])
+        return pd.DataFrame(columns=["Respuesta_C", "Respuesta_E", "Proveedor"])
     return pd.DataFrame(data)
 
 
@@ -383,7 +398,7 @@ def analizar_hoja_metodologia_raw(wb, proveedor):
 
     ws = wb[hoja_nombre]
     data = []
-    for r in range(8, ws.max_row + 1):
+    for r in range(8, ws.max_row + 1):  # fila 8 = primera fila de datos
         valores = [ws.cell(r, c).value for c in range(COL_INICIO, COL_FIN + 1)]
         if all(v is None for v in valores):
             continue
@@ -696,6 +711,58 @@ def calcular_tabla_alcance(data_alcance_servicios, nombres_proveedores, pesos_k,
     filas_fmt.append(fila_fmt)
     filas_raw.append(fila_raw)
     return pd.DataFrame(filas_fmt), pd.DataFrame(filas_raw)
+
+
+# =========================
+# HELPER: calcular tabla metodología implementación
+# Fórmula: (% SI * peso_total_cum + % calidad_col_E * peso_total_cal) * peso_metodologia
+# =========================
+def calcular_tabla_metodologia(data_metodologia, nombres_proveedores, pesos_k,
+                                peso_total_cumplimiento, peso_total_calidad, peso_metodologia):
+    """
+    Recibe la lista de DataFrames de metodología (uno por proveedor),
+    cada uno con columnas: Respuesta_C (SI/NO), Respuesta_E (calidad), Proveedor.
+    Devuelve (df_tabla_fmt, df_tabla_raw) con la columna por proveedor.
+    """
+    if not data_metodologia:
+        return None, None
+
+    df_met_all = pd.concat(data_metodologia, ignore_index=True)
+    todos_provs = nombres_proveedores if nombres_proveedores else sorted(df_met_all["Proveedor"].unique())
+
+    max_k = pesos_k.get("COMPLETA", 1.0)
+
+    fila_fmt = {"Métrica": "Puntaje metodología"}
+    fila_raw = {"Métrica": "Puntaje metodología"}
+
+    for prov in todos_provs:
+        df_prov = df_met_all[df_met_all["Proveedor"] == prov]
+        total = len(df_prov)
+        if total == 0:
+            fila_fmt[prov] = "0.00%"
+            fila_raw[prov] = 0.0
+            continue
+
+        # % cumplimiento: proporción de SI en columna C
+        n_si = (df_prov["Respuesta_C"] == "SI").sum()
+        pct_si = (n_si / total) * 100
+
+        # % calidad: promedio de pesos de columna E normalizado a 0–100
+        if max_k > 0:
+            pct_cal = df_prov["Respuesta_E"].map(
+                lambda v: pesos_k.get(v, 0.0)
+            ).mean() / max_k * 100
+        else:
+            pct_cal = 0.0
+
+        puntaje = round(
+            (pct_si * peso_total_cumplimiento + pct_cal * peso_total_calidad) * peso_metodologia,
+            2
+        )
+        fila_fmt[prov] = f"{puntaje:.2f}%"
+        fila_raw[prov] = puntaje
+
+    return pd.DataFrame([fila_fmt]), pd.DataFrame([fila_raw])
 
 
 # =========================
@@ -1695,50 +1762,38 @@ if st.session_state["archivos_cargados"]:
         st.info("No se encontraron datos de alcance de servicios (hoja '6.').")
 
     st.markdown("#### Metodología Implementación")
+    st.caption(
+        "Fórmula: (% de SI × Peso total cumplimiento + % de calidad col E × Peso total calidad) × Peso metodología"
+    )
     data_metodologia = st.session_state.get("data_metodologia", [])
-    if data_metodologia:
-        df_met_all = pd.concat(data_metodologia, ignore_index=True)
-        df_met_all = df_met_all[df_met_all["Respuesta"] != ""]
 
-        todos_provs_met = nombres_proveedores if nombres_proveedores else sorted(df_met_all["Proveedor"].unique())
+    _ptcum_met = st.session_state.get("ni_peso_total_cum", 100) / 100
+    _ptcal_met = st.session_state.get("ni_peso_total_cal", 100) / 100
+    _pm_met    = st.session_state.get("ni_peso_metodologia", 100) / 100
 
-        conteo_met = (
-            df_met_all.groupby(["Proveedor", "Respuesta"]).size()
-            .unstack(fill_value=0)
-        )
-        for col in ["SI", "NO"]:
-            if col not in conteo_met.columns:
-                conteo_met[col] = 0
-        conteo_met = conteo_met[["SI", "NO"]].reindex(todos_provs_met, fill_value=0)
-        total_por_prov_met = conteo_met.sum(axis=1)
+    _pesos_k_met = {
+        "COMPLETA":               st.session_state.get("ni_k_completa",               100) / 100,
+        "CASI COMPLETA":          st.session_state.get("ni_k_casi_completa",           75) / 100,
+        "PARCIALMENTE COMPLETA":  st.session_state.get("ni_k_parcialmente_completa",   50) / 100,
+        "INCOMPLETA":             st.session_state.get("ni_k_incompleta",              25) / 100,
+        "TOTALMENTE INCOMPLETA":  st.session_state.get("ni_k_totalmente_incompleta",    0) / 100,
+        "VACIO": 0.0,
+    }
 
-        _pm = st.session_state.get("param_peso_metodologia_raw", _peso_metodologia_pct) / 100
+    df_met_tabla_fmt, df_met_tabla_raw = calcular_tabla_metodologia(
+        data_metodologia,
+        nombres_proveedores,
+        _pesos_k_met,
+        _ptcum_met,
+        _ptcal_met,
+        _pm_met,
+    )
 
-        filas_met = []
-        for resp in ["SI"]:
-            fila = {"Respuesta": resp}
-            for prov in todos_provs_met:
-                total = total_por_prov_met[prov]
-                pct = round(conteo_met.loc[prov, resp] / total * 100, 2) if total > 0 else 0.0
-                pct = round(pct * _pm, 2)
-                fila[prov] = f"{pct:.2f}%"
-            filas_met.append(fila)
-
-        st.dataframe(pd.DataFrame(filas_met), use_container_width=True, key="df_metodologia")
-
-        filas_met_raw = []
-        for resp in ["SI"]:
-            fila = {"Respuesta": resp}
-            for prov in todos_provs_met:
-                total = total_por_prov_met[prov]
-                pct = round(conteo_met.loc[prov, resp] / total * 100, 2) if total > 0 else 0.0
-                pct = round(pct * _pm, 2)
-                fila[prov] = pct
-            filas_met_raw.append(fila)
-
+    if df_met_tabla_fmt is not None:
+        st.dataframe(df_met_tabla_fmt, use_container_width=True, key="df_metodologia")
         boton_descarga(
             "⬇️ Descargar metodología implementación",
-            {"Metodología Implementación": pd.DataFrame(filas_met_raw)},
+            {"Metodología Implementación": df_met_tabla_raw},
             "metodologia_implementacion.xlsx",
             "dl_metodologia"
         )
@@ -1969,31 +2024,32 @@ if st.session_state["archivos_cargados"]:
             _safe_to_excel(df_alc_export_raw, writer, "Alcance de servicios")
 
         # ── Metodología ─────────────────────────────────────────────────────
-        if data_metodologia:
-            _met_all = pd.concat(data_metodologia, ignore_index=True)
-            _met_all = _met_all[_met_all["Respuesta"] != ""]
-            _provs_met = nombres_proveedores if nombres_proveedores else sorted(_met_all["Proveedor"].unique())
-            _conteo_met = (
-                _met_all.groupby(["Proveedor", "Respuesta"]).size()
-                .unstack(fill_value=0)
-            )
-            for _col in ["SI", "NO"]:
-                if _col not in _conteo_met.columns:
-                    _conteo_met[_col] = 0
-            _conteo_met = _conteo_met[["SI", "NO"]].reindex(_provs_met, fill_value=0)
-            _total_met = _conteo_met.sum(axis=1)
-            _filas_met = []
-            for _resp in ["SI"]:
-                _fila = {"Respuesta": _resp}
-                for _prov in _provs_met:
-                    _t = _total_met[_prov]
-                    _pct = round(_conteo_met.loc[_prov, _resp] / _t * 100, 2) if _t > 0 else 0.0
-                    _fila[_prov] = round(_pct * (_peso_metodologia_pct / 100), 2)
-                _filas_met.append(_fila)
-            if data_metodologia_raw:
-                df_met_raw_export = pd.concat(data_metodologia_raw, ignore_index=True)
-                _safe_to_excel(df_met_raw_export, writer, "Metodologia - completa")
-            _safe_to_excel(pd.DataFrame(_filas_met), writer, "Metodologia Implementacion")
+        if data_metodologia_raw:
+            df_met_raw_export = pd.concat(data_metodologia_raw, ignore_index=True)
+            _safe_to_excel(df_met_raw_export, writer, "Metodologia - completa")
+
+        _ptcum_rep_met = st.session_state.get("param_peso_total_cumplimiento_raw", 100) / 100
+        _ptcal_rep_met = st.session_state.get("param_peso_total_calidad_raw",      100) / 100
+        _pm_rep        = st.session_state.get("param_peso_metodologia_raw",        100) / 100
+        _pesos_k_met_rep = {
+            "COMPLETA":               st.session_state.get("ni_k_completa",               100) / 100,
+            "CASI COMPLETA":          st.session_state.get("ni_k_casi_completa",           75)  / 100,
+            "PARCIALMENTE COMPLETA":  st.session_state.get("ni_k_parcialmente_completa",   50)  / 100,
+            "INCOMPLETA":             st.session_state.get("ni_k_incompleta",              25)  / 100,
+            "TOTALMENTE INCOMPLETA":  st.session_state.get("ni_k_totalmente_incompleta",    0)  / 100,
+            "VACIO": 0.0,
+        }
+        data_metodologia_export = st.session_state.get("data_metodologia", [])
+        _, df_met_export_raw = calcular_tabla_metodologia(
+            data_metodologia_export,
+            nombres_proveedores,
+            _pesos_k_met_rep,
+            _ptcum_rep_met,
+            _ptcal_rep_met,
+            _pm_rep,
+        )
+        if df_met_export_raw is not None:
+            _safe_to_excel(df_met_export_raw, writer, "Metodologia Implementacion")
 
         # ── Experiencia oferente ────────────────────────────────────────────
         if data_experiencia_oferente:
