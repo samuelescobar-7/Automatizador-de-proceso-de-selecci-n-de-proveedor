@@ -282,6 +282,30 @@ def analizar_hoja_experiencia_oferente_raw(wb, proveedor):
 
 
 # =========================
+# INFORMACIÓN DE LA SOLUCIÓN — lee filas 36, 37, 38; cols B(2), C(3), D(4)
+# =========================
+def analizar_hoja_info_solucion(wb, proveedor):
+    hoja_nombre = next((s for s in wb.sheetnames if s.strip().startswith("2.")), None)
+    if hoja_nombre is None:
+        return pd.DataFrame(columns=["Proveedor", "ID", "Requerimiento", "Respuesta"])
+
+    ws = wb[hoja_nombre]
+    FILAS = [36, 37, 38]
+    data = []
+    for r in FILAS:
+        id_val  = ws.cell(r, 2).value   # columna B
+        req_val = ws.cell(r, 3).value   # columna C
+        res_val = ws.cell(r, 4).value   # columna D
+        data.append({
+            "Proveedor":     proveedor,
+            "ID":            str(id_val).strip()  if id_val  is not None else "",
+            "Requerimiento": str(req_val).strip() if req_val is not None else "",
+            "Respuesta":     str(res_val).strip() if res_val is not None else "",
+        })
+    return pd.DataFrame(data)[["Proveedor", "ID", "Requerimiento", "Respuesta"]]
+
+
+# =========================
 # ALCANCE DE SERVICIOS — lee col C (SI/NO) y col E (calidad) desde fila 6
 # =========================
 def analizar_hoja_alcance_servicios(wb, proveedor):
@@ -649,8 +673,6 @@ def _safe_to_excel(df, writer, sheet_name):
 
 # =========================
 # HELPER: orden original de filas para pivot de requerimientos
-# Usa la columna "Fila" (número de fila en el Excel fuente) para reconstruir
-# el orden exacto en que aparecen los requerimientos en el archivo original.
 # =========================
 def _orden_requerimientos(lista_dfs):
     """Devuelve lista de (ID, Requerimiento) en el orden original del archivo fuente."""
@@ -663,10 +685,6 @@ def _orden_requerimientos(lista_dfs):
 # HELPER: pivot de requerimientos preservando orden original
 # =========================
 def _pivot_ordenado(df_datos, col_valor, orden):
-    """
-    Hace pivot usando (ID, Requerimiento) como índice y reordena según `orden`
-    (lista de tuplas (id, req) en el orden original del archivo fuente).
-    """
     df_idx = df_datos.copy()
     df_idx["_idx"] = list(zip(df_idx["ID"], df_idx["Requerimiento"]))
     pivot = (
@@ -681,7 +699,6 @@ def _pivot_ordenado(df_datos, col_valor, orden):
         .reset_index()
     )
     pivot.columns.name = None
-    # Descomponer tupla en columnas ID y Requerimiento
     pivot.insert(0, "ID", pivot["_idx"].apply(lambda t: t[0]))
     pivot.insert(1, "Requerimiento", pivot["_idx"].apply(lambda t: t[1]))
     pivot = pivot.drop(columns=["_idx"])
@@ -949,6 +966,7 @@ if archivos and not st.session_state["archivos_cargados"]:
     data_alcance_servicios_raw = []
     data_metodologia = []
     data_metodologia_raw = []
+    data_info_solucion = []
     metadata_archivos = []
     nombres_proveedores = []
 
@@ -1030,6 +1048,11 @@ if archivos and not st.session_state["archivos_cargados"]:
         if df_metodologia_raw is not None and not df_metodologia_raw.empty:
             data_metodologia_raw.append(df_metodologia_raw)
 
+        # ── Información de la Solución (hoja 2.) ───────────────────────────
+        df_info_sol = analizar_hoja_info_solucion(wb_exp, proveedor)
+        if df_info_sol is not None and not df_info_sol.empty:
+            data_info_solucion.append(df_info_sol)
+
     df_final, df_total = construir_tablas_cumplimiento(data)
     df_final_k, df_total_k = construir_tablas_calidad(data_k) if data_k else (None, None)
 
@@ -1053,6 +1076,7 @@ if archivos and not st.session_state["archivos_cargados"]:
         "data_alcance_servicios_raw": data_alcance_servicios_raw,
         "data_metodologia": data_metodologia,
         "data_metodologia_raw": data_metodologia_raw,
+        "data_info_solucion": data_info_solucion,
         "metadata_archivos": metadata_archivos,
         "nombres_proveedores": nombres_proveedores,
         "param_peso_col_f_raw": peso_col_f_pct,
@@ -1114,7 +1138,6 @@ if st.session_state["archivos_cargados"]:
             _df = det_df.copy()
             _df["Cumplimiento_%"] = _df["Peso_Total"] * 100
 
-            # ── Orden original: usar columna "Fila" del primer proveedor ──
             _proveedores_det = _df["Proveedor"].unique().tolist()
             _lista_dfs_det = [_df[_df["Proveedor"] == p] for p in _proveedores_det if not _df[_df["Proveedor"] == p].empty]
             _orden_reqs = _orden_requerimientos(_lista_dfs_det)
@@ -1149,7 +1172,6 @@ if st.session_state["archivos_cargados"]:
             _df_k = det_df_k.copy()
             _df_k["Calidad_%"] = _df_k["Peso_K"] * 100
 
-            # ── Orden original: usar columna "Fila" ──
             _proveedores_det_k = _df_k["Proveedor"].unique().tolist()
             _lista_dfs_det_k = [_df_k[_df_k["Proveedor"] == p] for p in _proveedores_det_k if not _df_k[_df_k["Proveedor"] == p].empty]
             _orden_reqs_k = _orden_requerimientos(_lista_dfs_det_k)
@@ -1218,6 +1240,7 @@ if st.session_state["archivos_cargados"]:
     data_alcance_servicios    = st.session_state.get("data_alcance_servicios", [])
     data_alcance_servicios_raw = st.session_state.get("data_alcance_servicios_raw", [])
     data_metodologia_raw      = st.session_state.get("data_metodologia_raw", [])
+    data_info_solucion        = st.session_state.get("data_info_solucion", [])
     metadata_archivos      = st.session_state.get("metadata_archivos", [])
     nombres_proveedores    = st.session_state.get("nombres_proveedores", [])
 
@@ -1875,7 +1898,6 @@ if st.session_state["archivos_cargados"]:
     buffer = BytesIO()
     with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
 
-        # ── Helper para escribir bloques dentro de una hoja ─────────────────
         def _write_pivot_block(ws, df, titulo, start_row):
             ws.cell(row=start_row, column=1, value=titulo).font = openpyxl.styles.Font(bold=True, size=11)
             start_row += 1
@@ -1892,10 +1914,7 @@ if st.session_state["archivos_cargados"]:
         for hoja_det, lista_dfs in detalles_globales.items():
             df_det = pd.concat(lista_dfs)
             df_det["Cumplimiento_%"] = df_det["Peso_Total"] * 100
-
-            # Orden original: primer proveedor ordenado por número de fila
             orden_reqs = _orden_requerimientos(lista_dfs)
-
             df_pivot_cum = _pivot_ordenado(df_det, "Cumplimiento_%", orden_reqs)
 
             df_pivot_cal = None
@@ -1917,7 +1936,6 @@ if st.session_state["archivos_cargados"]:
         for hoja_det, lista_dfs in detalles_globales_nf.items():
             df_det = pd.concat(lista_dfs)
             df_det["Cumplimiento_%"] = df_det["Peso_Total"] * 100
-
             orden_reqs = _orden_requerimientos(lista_dfs)
             df_pivot_cum = _pivot_ordenado(df_det, "Cumplimiento_%", orden_reqs)
 
@@ -1969,6 +1987,11 @@ if st.session_state["archivos_cargados"]:
 
         if data_experiencia:
             _safe_to_excel(pivot_sector, writer, "Exp - Por sector")
+
+        # ── Información de la Solución (hoja 2.) ───────────────────────────
+        if data_info_solucion:
+            df_info_sol_export = pd.concat(data_info_solucion, ignore_index=True)
+            _safe_to_excel(df_info_sol_export, writer, "Localizacion")
 
         # ── Alcance de servicios — dos pivots preservando orden original ────
         if data_alcance_servicios_raw:
