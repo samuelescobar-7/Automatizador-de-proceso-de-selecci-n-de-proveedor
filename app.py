@@ -1569,9 +1569,9 @@ if st.session_state["archivos_cargados"]:
     else:
         st.info("No se encontraron datos de experiencia del fabricante.")
 
-    st.markdown("#### Información de la solución - Localización Colombia/Perú")
-    st.markdown("#### Información de la solución - Evolución")
-    st.markdown("#### Información de la solución - Red de partners")
+    st.markdown("#### Información de la solución - Localización Colombia/Perú *(se encuentra en el reporte final)*")
+    st.markdown("#### Información de la solución - Evolución *(se encuentra en el reporte final)*")
+    st.markdown("#### Información de la solución - Red de partners *(se encuentra en el reporte final)*")
 
     # ---- CALIDAD DEL PROPONENTE ----
     st.subheader("Calidad del proponente")
@@ -1815,7 +1815,7 @@ if st.session_state["archivos_cargados"]:
     else:
         st.info("No se encontraron datos de metodología (hoja '7.').")
 
-    st.markdown("#### Equipo Implementador")
+    st.markdown("#### Equipo Implementador *(se encuentra en el reporte final)*")
 
     # ---- EXPORTAR EXCEL COMPLETO ----
     st.divider()
