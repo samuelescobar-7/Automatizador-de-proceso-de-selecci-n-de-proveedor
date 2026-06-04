@@ -282,6 +282,46 @@ def analizar_hoja_experiencia_oferente_raw(wb, proveedor):
 
 
 # =========================
+# EQUIPO IMPLEMENTADOR — hoja "9." cols B(2) a L(12) desde fila 10
+# =========================
+def analizar_hoja_equipo_implementador(wb, proveedor):
+    COLUMNAS = [
+        "Rol a desempeñar",
+        "Tipo de recurso",
+        "Experiencia",
+        "Número de recursos propuestos",
+        "# de días dedicados al Proyecto",
+        "% de asignación presencial",
+        "Profesión, educación",
+        "Certificaciones de conocimiento expedidas por el fabricante",
+        "Certificaciones emitidas por clientes de proyectos trabajados",
+        "Fase en la que participa",
+        "Documento soporte",
+    ]
+    COL_INICIO = 2   # columna B
+    COL_FIN    = 12  # columna L
+
+    hoja_nombre = next((s for s in wb.sheetnames if s.strip().startswith("9.")), None)
+    if hoja_nombre is None:
+        return pd.DataFrame(columns=["Proveedor"] + COLUMNAS)
+
+    ws = wb[hoja_nombre]
+    data = []
+    for r in range(10, ws.max_row + 1):
+        valores = [ws.cell(r, c).value for c in range(COL_INICIO, COL_FIN + 1)]
+        if all(v is None for v in valores):
+            continue
+        fila = {"Proveedor": proveedor}
+        for col_name, val in zip(COLUMNAS, valores):
+            fila[col_name] = str(val).strip() if val is not None else ""
+        data.append(fila)
+
+    if not data:
+        return pd.DataFrame(columns=["Proveedor"] + COLUMNAS)
+    return pd.DataFrame(data)[["Proveedor"] + COLUMNAS]
+
+
+# =========================
 # INFORMACIÓN DE LA SOLUCIÓN — Localizacion: lee filas 36, 37, 38; cols B(2), C(3), D(4)
 # =========================
 def analizar_hoja_info_solucion(wb, proveedor):
@@ -1015,8 +1055,9 @@ if archivos and not st.session_state["archivos_cargados"]:
     data_metodologia = []
     data_metodologia_raw = []
     data_info_solucion = []
-    data_evolucion = []          # ← NUEVO
-    data_red_partners = []       # ← NUEVO
+    data_evolucion = []
+    data_red_partners = []
+    data_equipo_implementador = []   # ← NUEVO
     metadata_archivos = []
     nombres_proveedores = []
 
@@ -1113,6 +1154,11 @@ if archivos and not st.session_state["archivos_cargados"]:
         if df_red is not None and not df_red.empty:
             data_red_partners.append(df_red)
 
+        # ── Equipo Implementador (hoja "9.", cols B–L desde fila 10) ────────
+        df_equipo = analizar_hoja_equipo_implementador(wb_exp, proveedor)
+        if df_equipo is not None and not df_equipo.empty:
+            data_equipo_implementador.append(df_equipo)
+
     df_final, df_total = construir_tablas_cumplimiento(data)
     df_final_k, df_total_k = construir_tablas_calidad(data_k) if data_k else (None, None)
 
@@ -1137,8 +1183,9 @@ if archivos and not st.session_state["archivos_cargados"]:
         "data_metodologia": data_metodologia,
         "data_metodologia_raw": data_metodologia_raw,
         "data_info_solucion": data_info_solucion,
-        "data_evolucion": data_evolucion,          # ← NUEVO
-        "data_red_partners": data_red_partners,    # ← NUEVO
+        "data_evolucion": data_evolucion,
+        "data_red_partners": data_red_partners,
+        "data_equipo_implementador": data_equipo_implementador,   # ← NUEVO
         "metadata_archivos": metadata_archivos,
         "nombres_proveedores": nombres_proveedores,
         "param_peso_col_f_raw": peso_col_f_pct,
@@ -1303,8 +1350,9 @@ if st.session_state["archivos_cargados"]:
     data_alcance_servicios_raw = st.session_state.get("data_alcance_servicios_raw", [])
     data_metodologia_raw      = st.session_state.get("data_metodologia_raw", [])
     data_info_solucion        = st.session_state.get("data_info_solucion", [])
-    data_evolucion            = st.session_state.get("data_evolucion", [])   # ← NUEVO
-    data_red_partners         = st.session_state.get("data_red_partners", [])  # ← NUEVO
+    data_evolucion            = st.session_state.get("data_evolucion", [])
+    data_red_partners         = st.session_state.get("data_red_partners", [])
+    data_equipo_implementador = st.session_state.get("data_equipo_implementador", [])   # ← NUEVO
     metadata_archivos      = st.session_state.get("metadata_archivos", [])
     nombres_proveedores    = st.session_state.get("nombres_proveedores", [])
 
@@ -2221,6 +2269,11 @@ if st.session_state["archivos_cargados"]:
                 df_exp_of_raw_export = pd.concat(data_experiencia_oferente_raw, ignore_index=True)
                 _safe_to_excel(df_exp_of_raw_export, writer, "Exp - Oferente completa")
             _safe_to_excel(_pivot_of, writer, "Exp - Oferente por sector")
+
+        # ── Equipo Implementador ────────────────────────────────────────────
+        if data_equipo_implementador:
+            df_equipo_export = pd.concat(data_equipo_implementador, ignore_index=True)
+            _safe_to_excel(df_equipo_export, writer, "Equipo Implementador")
 
         escribir_hoja_info_analisis(writer, bloques_info)
 
