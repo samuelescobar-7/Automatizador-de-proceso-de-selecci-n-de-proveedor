@@ -1952,6 +1952,12 @@ if st.session_state["archivos_cargados"]:
 
     st.markdown("#### Equipo Implementador *(se encuentra en el reporte final)*")
 
+    # ---- OTRAS ----
+    st.subheader("OTRAS")
+
+    st.markdown("#### Capacidades Nube *(se encuentra en el reporte final)*")
+    st.markdown("#### Soporte y Manto *(se encuentra en el reporte final)*")
+
     # ---- EXPORTAR EXCEL COMPLETO ----
     st.divider()
 
