@@ -330,6 +330,30 @@ def analizar_hoja_evolucion(wb, proveedor):
 
 
 # =========================
+# INFORMACIÓN DE LA SOLUCIÓN — Red de partners: lee filas 34, 35; cols B(2), C(3), D(4)
+# =========================
+def analizar_hoja_red_partners(wb, proveedor):
+    hoja_nombre = next((s for s in wb.sheetnames if s.strip().startswith("2.")), None)
+    if hoja_nombre is None:
+        return pd.DataFrame(columns=["Proveedor", "ID", "Requerimiento", "Respuesta"])
+
+    ws = wb[hoja_nombre]
+    FILAS = [34, 35]
+    data = []
+    for r in FILAS:
+        id_val  = ws.cell(r, 2).value   # columna B
+        req_val = ws.cell(r, 3).value   # columna C
+        res_val = ws.cell(r, 4).value   # columna D
+        data.append({
+            "Proveedor":     proveedor,
+            "ID":            str(id_val).strip()  if id_val  is not None else "",
+            "Requerimiento": str(req_val).strip() if req_val is not None else "",
+            "Respuesta":     str(res_val).strip() if res_val is not None else "",
+        })
+    return pd.DataFrame(data)[["Proveedor", "ID", "Requerimiento", "Respuesta"]]
+
+
+# =========================
 # ALCANCE DE SERVICIOS — lee col C (SI/NO) y col E (calidad) desde fila 6
 # =========================
 def analizar_hoja_alcance_servicios(wb, proveedor):
@@ -992,6 +1016,7 @@ if archivos and not st.session_state["archivos_cargados"]:
     data_metodologia_raw = []
     data_info_solucion = []
     data_evolucion = []          # ← NUEVO
+    data_red_partners = []       # ← NUEVO
     metadata_archivos = []
     nombres_proveedores = []
 
@@ -1083,6 +1108,11 @@ if archivos and not st.session_state["archivos_cargados"]:
         if df_evol is not None and not df_evol.empty:
             data_evolucion.append(df_evol)
 
+        # ── Información de la Solución — Red de partners (filas 34, 35) ────
+        df_red = analizar_hoja_red_partners(wb_exp, proveedor)
+        if df_red is not None and not df_red.empty:
+            data_red_partners.append(df_red)
+
     df_final, df_total = construir_tablas_cumplimiento(data)
     df_final_k, df_total_k = construir_tablas_calidad(data_k) if data_k else (None, None)
 
@@ -1108,6 +1138,7 @@ if archivos and not st.session_state["archivos_cargados"]:
         "data_metodologia_raw": data_metodologia_raw,
         "data_info_solucion": data_info_solucion,
         "data_evolucion": data_evolucion,          # ← NUEVO
+        "data_red_partners": data_red_partners,    # ← NUEVO
         "metadata_archivos": metadata_archivos,
         "nombres_proveedores": nombres_proveedores,
         "param_peso_col_f_raw": peso_col_f_pct,
@@ -1273,6 +1304,7 @@ if st.session_state["archivos_cargados"]:
     data_metodologia_raw      = st.session_state.get("data_metodologia_raw", [])
     data_info_solucion        = st.session_state.get("data_info_solucion", [])
     data_evolucion            = st.session_state.get("data_evolucion", [])   # ← NUEVO
+    data_red_partners         = st.session_state.get("data_red_partners", [])  # ← NUEVO
     metadata_archivos      = st.session_state.get("metadata_archivos", [])
     nombres_proveedores    = st.session_state.get("nombres_proveedores", [])
 
@@ -2029,6 +2061,11 @@ if st.session_state["archivos_cargados"]:
         if data_evolucion:
             df_evol_export = pd.concat(data_evolucion, ignore_index=True)
             _safe_to_excel(df_evol_export, writer, "Evolucion")
+
+        # ── Información de la Solución — Red de partners (filas 34,35) ─────
+        if data_red_partners:
+            df_red_export = pd.concat(data_red_partners, ignore_index=True)
+            _safe_to_excel(df_red_export, writer, "Red de partners")
 
         # ── Alcance de servicios — dos pivots preservando orden original ────
         if data_alcance_servicios_raw:
