@@ -282,7 +282,7 @@ def analizar_hoja_experiencia_oferente_raw(wb, proveedor):
 
 
 # =========================
-# INFORMACIÓN DE LA SOLUCIÓN — lee filas 36, 37, 38; cols B(2), C(3), D(4)
+# INFORMACIÓN DE LA SOLUCIÓN — Localizacion: lee filas 36, 37, 38; cols B(2), C(3), D(4)
 # =========================
 def analizar_hoja_info_solucion(wb, proveedor):
     hoja_nombre = next((s for s in wb.sheetnames if s.strip().startswith("2.")), None)
@@ -291,6 +291,30 @@ def analizar_hoja_info_solucion(wb, proveedor):
 
     ws = wb[hoja_nombre]
     FILAS = [36, 37, 38]
+    data = []
+    for r in FILAS:
+        id_val  = ws.cell(r, 2).value   # columna B
+        req_val = ws.cell(r, 3).value   # columna C
+        res_val = ws.cell(r, 4).value   # columna D
+        data.append({
+            "Proveedor":     proveedor,
+            "ID":            str(id_val).strip()  if id_val  is not None else "",
+            "Requerimiento": str(req_val).strip() if req_val is not None else "",
+            "Respuesta":     str(res_val).strip() if res_val is not None else "",
+        })
+    return pd.DataFrame(data)[["Proveedor", "ID", "Requerimiento", "Respuesta"]]
+
+
+# =========================
+# INFORMACIÓN DE LA SOLUCIÓN — Evolución: lee filas 11, 12, 13; cols B(2), C(3), D(4)
+# =========================
+def analizar_hoja_evolucion(wb, proveedor):
+    hoja_nombre = next((s for s in wb.sheetnames if s.strip().startswith("2.")), None)
+    if hoja_nombre is None:
+        return pd.DataFrame(columns=["Proveedor", "ID", "Requerimiento", "Respuesta"])
+
+    ws = wb[hoja_nombre]
+    FILAS = [11, 12, 13]
     data = []
     for r in FILAS:
         id_val  = ws.cell(r, 2).value   # columna B
@@ -967,6 +991,7 @@ if archivos and not st.session_state["archivos_cargados"]:
     data_metodologia = []
     data_metodologia_raw = []
     data_info_solucion = []
+    data_evolucion = []          # ← NUEVO
     metadata_archivos = []
     nombres_proveedores = []
 
@@ -1048,10 +1073,15 @@ if archivos and not st.session_state["archivos_cargados"]:
         if df_metodologia_raw is not None and not df_metodologia_raw.empty:
             data_metodologia_raw.append(df_metodologia_raw)
 
-        # ── Información de la Solución (hoja 2.) ───────────────────────────
+        # ── Información de la Solución — Localizacion (filas 36, 37, 38) ──
         df_info_sol = analizar_hoja_info_solucion(wb_exp, proveedor)
         if df_info_sol is not None and not df_info_sol.empty:
             data_info_solucion.append(df_info_sol)
+
+        # ── Información de la Solución — Evolución (filas 11, 12, 13) ──────
+        df_evol = analizar_hoja_evolucion(wb_exp, proveedor)
+        if df_evol is not None and not df_evol.empty:
+            data_evolucion.append(df_evol)
 
     df_final, df_total = construir_tablas_cumplimiento(data)
     df_final_k, df_total_k = construir_tablas_calidad(data_k) if data_k else (None, None)
@@ -1077,6 +1107,7 @@ if archivos and not st.session_state["archivos_cargados"]:
         "data_metodologia": data_metodologia,
         "data_metodologia_raw": data_metodologia_raw,
         "data_info_solucion": data_info_solucion,
+        "data_evolucion": data_evolucion,          # ← NUEVO
         "metadata_archivos": metadata_archivos,
         "nombres_proveedores": nombres_proveedores,
         "param_peso_col_f_raw": peso_col_f_pct,
@@ -1241,6 +1272,7 @@ if st.session_state["archivos_cargados"]:
     data_alcance_servicios_raw = st.session_state.get("data_alcance_servicios_raw", [])
     data_metodologia_raw      = st.session_state.get("data_metodologia_raw", [])
     data_info_solucion        = st.session_state.get("data_info_solucion", [])
+    data_evolucion            = st.session_state.get("data_evolucion", [])   # ← NUEVO
     metadata_archivos      = st.session_state.get("metadata_archivos", [])
     nombres_proveedores    = st.session_state.get("nombres_proveedores", [])
 
@@ -1988,10 +2020,15 @@ if st.session_state["archivos_cargados"]:
         if data_experiencia:
             _safe_to_excel(pivot_sector, writer, "Exp - Por sector")
 
-        # ── Información de la Solución (hoja 2.) ───────────────────────────
+        # ── Información de la Solución — Localizacion (filas 36,37,38) ─────
         if data_info_solucion:
             df_info_sol_export = pd.concat(data_info_solucion, ignore_index=True)
             _safe_to_excel(df_info_sol_export, writer, "Localizacion")
+
+        # ── Información de la Solución — Evolución (filas 11,12,13) ────────
+        if data_evolucion:
+            df_evol_export = pd.concat(data_evolucion, ignore_index=True)
+            _safe_to_excel(df_evol_export, writer, "Evolucion")
 
         # ── Alcance de servicios — dos pivots preservando orden original ────
         if data_alcance_servicios_raw:
