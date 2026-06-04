@@ -1161,7 +1161,7 @@ if archivos and not st.session_state["archivos_cargados"]:
     data_equipo_implementador = []
     data_capacidades_nube = []
     data_soporte_manto = []
-    data_ans_sla = []          # ← NUEVO: lista para ANS/SLA
+    data_ans_sla = []
     metadata_archivos = []
     nombres_proveedores = []
 
@@ -1243,37 +1243,30 @@ if archivos and not st.session_state["archivos_cargados"]:
         if df_metodologia_raw is not None and not df_metodologia_raw.empty:
             data_metodologia_raw.append(df_metodologia_raw)
 
-        # ── Información de la Solución — Localizacion (filas 36, 37, 38) ──
         df_info_sol = analizar_hoja_info_solucion(wb_exp, proveedor)
         if df_info_sol is not None and not df_info_sol.empty:
             data_info_solucion.append(df_info_sol)
 
-        # ── Información de la Solución — Evolución (filas 11, 12, 13) ──────
         df_evol = analizar_hoja_evolucion(wb_exp, proveedor)
         if df_evol is not None and not df_evol.empty:
             data_evolucion.append(df_evol)
 
-        # ── Información de la Solución — Red de partners (filas 34, 35) ────
         df_red = analizar_hoja_red_partners(wb_exp, proveedor)
         if df_red is not None and not df_red.empty:
             data_red_partners.append(df_red)
 
-        # ── Equipo Implementador (hoja "9.", cols B–L desde fila 10) ────────
         df_equipo = analizar_hoja_equipo_implementador(wb_exp, proveedor)
         if df_equipo is not None and not df_equipo.empty:
             data_equipo_implementador.append(df_equipo)
 
-        # ── Capacidades Nube (hoja "12.", cols B–E desde fila 10) ───────────
         df_cap_nube = analizar_hoja_capacidades_nube(wb_exp, proveedor)
         if df_cap_nube is not None and not df_cap_nube.empty:
             data_capacidades_nube.append(df_cap_nube)
 
-        # ── Soporte y Manto (hoja "13.", cols B–F filas 9–24) ───────────────
         df_soporte = analizar_hoja_soporte_manto(wb_exp, proveedor)
         if df_soporte is not None and not df_soporte.empty:
             data_soporte_manto.append(df_soporte)
 
-        # ── ANS / SLA (hoja "13.", cols B–F filas 28–31) ────────────────────
         df_ans = analizar_hoja_ans_sla(wb_exp, proveedor)
         if df_ans is not None and not df_ans.empty:
             data_ans_sla.append(df_ans)
@@ -1307,7 +1300,7 @@ if archivos and not st.session_state["archivos_cargados"]:
         "data_equipo_implementador": data_equipo_implementador,
         "data_capacidades_nube": data_capacidades_nube,
         "data_soporte_manto": data_soporte_manto,
-        "data_ans_sla": data_ans_sla,          # ← NUEVO
+        "data_ans_sla": data_ans_sla,
         "metadata_archivos": metadata_archivos,
         "nombres_proveedores": nombres_proveedores,
         "param_peso_col_f_raw": peso_col_f_pct,
@@ -1477,7 +1470,7 @@ if st.session_state["archivos_cargados"]:
     data_equipo_implementador = st.session_state.get("data_equipo_implementador", [])
     data_capacidades_nube     = st.session_state.get("data_capacidades_nube", [])
     data_soporte_manto        = st.session_state.get("data_soporte_manto", [])
-    data_ans_sla              = st.session_state.get("data_ans_sla", [])   # ← NUEVO
+    data_ans_sla              = st.session_state.get("data_ans_sla", [])
     metadata_archivos      = st.session_state.get("metadata_archivos", [])
     nombres_proveedores    = st.session_state.get("nombres_proveedores", [])
 
@@ -2111,7 +2104,13 @@ if st.session_state["archivos_cargados"]:
         {h: st.session_state.get(f"peso_hoja_nf_{h}", 100) for h in df_final_nf["Hoja"].tolist()}
     )
 
-    fecha_generacion = datetime.now(tz=ZoneInfo("America/Bogota")).strftime("%Y-%m-%d %H:%M:%S")
+    # ── Fecha y nombre del archivo de descarga ──────────────────────────────
+    _now_bogota     = datetime.now(tz=ZoneInfo("America/Bogota"))
+    fecha_generacion = _now_bogota.strftime("%Y-%m-%d %H:%M:%S")
+    # Formato para el nombre: día-mes-año-hora-minuto-segundo  (sin caracteres inválidos)
+    _fecha_nombre   = _now_bogota.strftime("%d-%m-%Y-%H-%M-%S")
+    nombre_reporte  = f"reporte-magnex-{_fecha_nombre}.xlsx"
+    # ───────────────────────────────────────────────────────────────────────
 
     bloques_info = construir_hoja_info_analisis(
         fecha_generacion=fecha_generacion,
@@ -2231,22 +2230,22 @@ if st.session_state["archivos_cargados"]:
         if data_experiencia:
             _safe_to_excel(pivot_sector, writer, "Exp - Por sector")
 
-        # ── Información de la Solución — Localizacion (filas 36,37,38) ─────
+        # ── Información de la Solución — Localizacion ──────────────────────
         if data_info_solucion:
             df_info_sol_export = pd.concat(data_info_solucion, ignore_index=True)
             _safe_to_excel(df_info_sol_export, writer, "Localizacion")
 
-        # ── Información de la Solución — Evolución (filas 11,12,13) ────────
+        # ── Información de la Solución — Evolución ──────────────────────────
         if data_evolucion:
             df_evol_export = pd.concat(data_evolucion, ignore_index=True)
             _safe_to_excel(df_evol_export, writer, "Evolucion")
 
-        # ── Información de la Solución — Red de partners (filas 34,35) ─────
+        # ── Información de la Solución — Red de partners ────────────────────
         if data_red_partners:
             df_red_export = pd.concat(data_red_partners, ignore_index=True)
             _safe_to_excel(df_red_export, writer, "Red de partners")
 
-        # ── Alcance de servicios — dos pivots preservando orden original ────
+        # ── Alcance de servicios ────────────────────────────────────────────
         if data_alcance_servicios_raw:
             df_alc_raw_export = pd.concat(data_alcance_servicios_raw, ignore_index=True)
 
@@ -2312,7 +2311,7 @@ if st.session_state["archivos_cargados"]:
         if df_alc_export_raw is not None:
             _safe_to_excel(df_alc_export_raw, writer, "Alcance de servicios")
 
-        # ── Metodología — dos pivots preservando orden original ─────────────
+        # ── Metodología ─────────────────────────────────────────────────────
         if data_metodologia_raw:
             df_met_raw_export = pd.concat(data_metodologia_raw, ignore_index=True)
 
@@ -2411,19 +2410,15 @@ if st.session_state["archivos_cargados"]:
             df_cap_nube_export = pd.concat(data_capacidades_nube, ignore_index=True)
             _safe_to_excel(df_cap_nube_export, writer, "Capacidades Nube")
 
-        # ── Soporte y Manto + ANS/SLA en la misma hoja ──────────────────────
-        # Se escriben ambas tablas una debajo de la otra con un título en negrita
-        # separándolas, para que queden en la misma hoja "Soporte y Manto".
+        # ── Soporte y Manto + ANS/SLA ───────────────────────────────────────
         if data_soporte_manto or data_ans_sla:
             ws_sm = writer.book.create_sheet("Soporte y Manto")
             fila_sm = 1
 
-            # ── Tabla 1: Soporte y Manto ─────────────────────────────────
             if data_soporte_manto:
                 df_soporte_export = pd.concat(data_soporte_manto, ignore_index=True)
                 fila_sm = _write_pivot_block(ws_sm, df_soporte_export, "Soporte y Manto", fila_sm)
 
-            # ── Tabla 2: ANS / SLA ────────────────────────────────────────
             if data_ans_sla:
                 df_ans_export = pd.concat(data_ans_sla, ignore_index=True)
                 fila_sm = _write_pivot_block(
@@ -2432,7 +2427,6 @@ if st.session_state["archivos_cargados"]:
                     fila_sm
                 )
 
-            # Ajustar ancho de columnas
             for col in ws_sm.columns:
                 max_len = max(
                     (len(str(cell.value)) for cell in col if cell.value is not None),
@@ -2445,7 +2439,7 @@ if st.session_state["archivos_cargados"]:
     st.download_button(
         "⬇️ Descargar reporte completo Excel",
         buffer.getvalue(),
-        file_name="reporte.xlsx",
+        file_name=nombre_reporte,   # ← nombre dinámico con fecha y hora
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         key="dl_reporte_completo"
     )
