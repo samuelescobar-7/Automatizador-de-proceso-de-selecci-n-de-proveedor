@@ -322,6 +322,39 @@ def analizar_hoja_equipo_implementador(wb, proveedor):
 
 
 # =========================
+# CAPACIDADES NUBE — hoja "12." cols B(2) a E(5) desde fila 10
+# =========================
+def analizar_hoja_capacidades_nube(wb, proveedor):
+    COLUMNAS = [
+        "Categoria",
+        "Variable a Declarar",
+        "Respuesta del oferente",
+        "Observaciones Adicionales del oferente",
+    ]
+    COL_INICIO = 2   # columna B
+    COL_FIN    = 5   # columna E
+
+    hoja_nombre = next((s for s in wb.sheetnames if s.strip().startswith("12.")), None)
+    if hoja_nombre is None:
+        return pd.DataFrame(columns=["Proveedor"] + COLUMNAS)
+
+    ws = wb[hoja_nombre]
+    data = []
+    for r in range(10, ws.max_row + 1):
+        valores = [ws.cell(r, c).value for c in range(COL_INICIO, COL_FIN + 1)]
+        if all(v is None for v in valores):
+            continue
+        fila = {"Proveedor": proveedor}
+        for col_name, val in zip(COLUMNAS, valores):
+            fila[col_name] = str(val).strip() if val is not None else ""
+        data.append(fila)
+
+    if not data:
+        return pd.DataFrame(columns=["Proveedor"] + COLUMNAS)
+    return pd.DataFrame(data)[["Proveedor"] + COLUMNAS]
+
+
+# =========================
 # INFORMACIÓN DE LA SOLUCIÓN — Localizacion: lee filas 36, 37, 38; cols B(2), C(3), D(4)
 # =========================
 def analizar_hoja_info_solucion(wb, proveedor):
@@ -1058,6 +1091,7 @@ if archivos and not st.session_state["archivos_cargados"]:
     data_evolucion = []
     data_red_partners = []
     data_equipo_implementador = []   # ← NUEVO
+    data_capacidades_nube = []
     metadata_archivos = []
     nombres_proveedores = []
 
@@ -1159,6 +1193,11 @@ if archivos and not st.session_state["archivos_cargados"]:
         if df_equipo is not None and not df_equipo.empty:
             data_equipo_implementador.append(df_equipo)
 
+        # ── Capacidades Nube (hoja "12.", cols B–E desde fila 10) ───────────
+        df_cap_nube = analizar_hoja_capacidades_nube(wb_exp, proveedor)
+        if df_cap_nube is not None and not df_cap_nube.empty:
+            data_capacidades_nube.append(df_cap_nube)
+
     df_final, df_total = construir_tablas_cumplimiento(data)
     df_final_k, df_total_k = construir_tablas_calidad(data_k) if data_k else (None, None)
 
@@ -1186,6 +1225,7 @@ if archivos and not st.session_state["archivos_cargados"]:
         "data_evolucion": data_evolucion,
         "data_red_partners": data_red_partners,
         "data_equipo_implementador": data_equipo_implementador,   # ← NUEVO
+        "data_capacidades_nube": data_capacidades_nube,
         "metadata_archivos": metadata_archivos,
         "nombres_proveedores": nombres_proveedores,
         "param_peso_col_f_raw": peso_col_f_pct,
@@ -1353,6 +1393,7 @@ if st.session_state["archivos_cargados"]:
     data_evolucion            = st.session_state.get("data_evolucion", [])
     data_red_partners         = st.session_state.get("data_red_partners", [])
     data_equipo_implementador = st.session_state.get("data_equipo_implementador", [])   # ← NUEVO
+    data_capacidades_nube     = st.session_state.get("data_capacidades_nube", [])
     metadata_archivos      = st.session_state.get("metadata_archivos", [])
     nombres_proveedores    = st.session_state.get("nombres_proveedores", [])
 
@@ -2280,6 +2321,11 @@ if st.session_state["archivos_cargados"]:
         if data_equipo_implementador:
             df_equipo_export = pd.concat(data_equipo_implementador, ignore_index=True)
             _safe_to_excel(df_equipo_export, writer, "Equipo Implementador")
+
+        # ── Capacidades Nube ────────────────────────────────────────────────
+        if data_capacidades_nube:
+            df_cap_nube_export = pd.concat(data_capacidades_nube, ignore_index=True)
+            _safe_to_excel(df_cap_nube_export, writer, "Capacidades Nube")
 
         escribir_hoja_info_analisis(writer, bloques_info)
 
