@@ -447,7 +447,7 @@ def analizar_hoja_info_solucion(wb, proveedor):
 
 
 # =========================
-# INFORMACIÓN DE LA SOLUCIÓN — Evolución: lee filas 11, 12, 13; cols B(2), C(3), D(4)
+# INFORMACIÓN DE LA SOLUCIÓN — Evolución: lee filas 10, 11, 12, 13, 29 y 31; cols B(2), C(3), D(4)
 # =========================
 def analizar_hoja_evolucion(wb, proveedor):
     hoja_nombre = next((s for s in wb.sheetnames if s.strip().startswith("2.")), None)
@@ -455,7 +455,7 @@ def analizar_hoja_evolucion(wb, proveedor):
         return pd.DataFrame(columns=["Proveedor", "ID", "Requerimiento", "Respuesta"])
 
     ws = wb[hoja_nombre]
-    FILAS = [11, 12, 13]
+    FILAS = [10, 11, 12, 13, 29, 31]
     data = []
     for r in FILAS:
         id_val  = ws.cell(r, 2).value   # columna B
@@ -471,15 +471,15 @@ def analizar_hoja_evolucion(wb, proveedor):
 
 
 # =========================
-# INFORMACIÓN DE LA SOLUCIÓN — Red de partners: lee filas 34, 35; cols B(2), C(3), D(4)
+# INFORMACIÓN DE LA SOLUCIÓN — Ecosistema y capacidad de soporte de la solución: lee filas 32, 33, 34, 35; cols B(2), C(3), D(4)
 # =========================
-def analizar_hoja_red_partners(wb, proveedor):
+def analizar_hoja_ecosistema(wb, proveedor):
     hoja_nombre = next((s for s in wb.sheetnames if s.strip().startswith("2.")), None)
     if hoja_nombre is None:
         return pd.DataFrame(columns=["Proveedor", "ID", "Requerimiento", "Respuesta"])
 
     ws = wb[hoja_nombre]
-    FILAS = [34, 35]
+    FILAS = [32,33,34, 35]
     data = []
     for r in FILAS:
         id_val  = ws.cell(r, 2).value   # columna B
@@ -1251,7 +1251,7 @@ if archivos and not st.session_state["archivos_cargados"]:
         if df_evol is not None and not df_evol.empty:
             data_evolucion.append(df_evol)
 
-        df_red = analizar_hoja_red_partners(wb_exp, proveedor)
+        df_red = analizar_hoja_ecosistema(wb_exp, proveedor)
         if df_red is not None and not df_red.empty:
             data_red_partners.append(df_red)
 
@@ -1823,8 +1823,8 @@ if st.session_state["archivos_cargados"]:
         st.info("No se encontraron datos de experiencia del fabricante.")
 
     st.markdown("#### Información de la solución - Localización Colombia/Perú *(se encuentra en el reporte final)*")
-    st.markdown("#### Información de la solución - Evolución *(se encuentra en el reporte final)*")
-    st.markdown("#### Información de la solución - Red de partners *(se encuentra en el reporte final)*")
+    st.markdown("#### Información de la solución - Evolución, Sostenibilidad e innovación *(se encuentra en el reporte final)*")
+    st.markdown("#### Información de la solución - Ecosistema y capacidad de soporte de la solución *(se encuentra en el reporte final)*")
 
     # ---- CALIDAD DEL PROPONENTE ----
     st.subheader("Calidad del proponente")
@@ -2240,10 +2240,10 @@ if st.session_state["archivos_cargados"]:
             df_evol_export = pd.concat(data_evolucion, ignore_index=True)
             _safe_to_excel(df_evol_export, writer, "Evolucion")
 
-        # ── Información de la Solución — Red de partners ────────────────────
+        # ── Información de la Solución — Ecosistema ────────────────────
         if data_red_partners:
             df_red_export = pd.concat(data_red_partners, ignore_index=True)
-            _safe_to_excel(df_red_export, writer, "Red de partners")
+            _safe_to_excel(df_red_export, writer, "Ecosistema")
 
         # ── Alcance de servicios ────────────────────────────────────────────
         if data_alcance_servicios_raw:
