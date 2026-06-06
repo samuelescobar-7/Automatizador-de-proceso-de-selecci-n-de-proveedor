@@ -986,7 +986,7 @@ def calcular_tabla_metodologia(data_metodologia, nombres_proveedores, pesos_k,
 # UI
 # =========================
 st.set_page_config(layout="wide")
-st.title("Analizador de Cumplimiento")
+st.title("Evaluador de Propuestas")
 
 if st.sidebar.button("Reiniciar análisis"):
     st.session_state.clear()
