@@ -1630,12 +1630,15 @@ if st.session_state["archivos_cargados"]:
 
     # ---- SOLIDEZ DEL FABRICANTE ----
     st.subheader("Solidez del fabricante")
-
-    st.markdown("#### Experiencia del fabricante")
+    st.info(
+        "La información consolidada de experiencia, localización, evolución, ecosistema y "
+        "capacidad de soporte de la solución se encuentran en el reporte final."
+    )
+    pivot_sector = pd.DataFrame()
     if data_experiencia:
+        import json
         df_exp_all = pd.concat(data_experiencia, ignore_index=True)
         todos_proveedores = list(df_exp_all["Proveedor"].unique())
-
         pivot_sector = (
             df_exp_all[df_exp_all["Sector/Industria"] != ""]
             .groupby(["Sector/Industria", "Proveedor"]).size()
@@ -1643,352 +1646,8 @@ if st.session_state["archivos_cargados"]:
             .reindex(columns=todos_proveedores, fill_value=0)
             .reset_index()
         )
-
-        st.markdown("**Por Sector/Industria** — haz clic en una fila para desplegar los países")
-
-        import json
-
-        sectores_data = []
-        for _, row_s in pivot_sector.iterrows():
-            sector = row_s["Sector/Industria"]
-            df_filtrado = df_exp_all[df_exp_all["Sector/Industria"] == sector]
-            pivot_p = (
-                df_filtrado[df_filtrado["País"] != ""]
-                .groupby(["País", "Proveedor"]).size()
-                .unstack(fill_value=0)
-                .reindex(columns=todos_proveedores, fill_value=0)
-                .reset_index()
-            )
-            paises = []
-            for _, row_p in pivot_p.iterrows():
-                paises.append({
-                    "pais": row_p["País"],
-                    "vals": [int(row_p[p]) for p in todos_proveedores]
-                })
-            sectores_data.append({
-                "sector": sector,
-                "vals": [int(row_s[p]) for p in todos_proveedores],
-                "paises": paises
-            })
-
-        proveedores_json = json.dumps(todos_proveedores)
-        sectores_json = json.dumps(sectores_data)
-
-        tabla_html = f"""
-<style>
-  .wrap-exp {{
-    font-family: inherit;
-    border: 1px solid #3a3a4a;
-    border-radius: 6px;
-    overflow: hidden;
-    max-height: 520px;
-    overflow-y: auto;
-  }}
-  .exp-tbl {{
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 13.5px;
-  }}
-  .exp-tbl thead tr {{
-    background: #16213e;
-    position: sticky;
-    top: 0;
-    z-index: 2;
-  }}
-  .exp-tbl th {{
-    padding: 9px 14px;
-    text-align: left;
-    color: #a0aec0;
-    font-weight: 600;
-    border-bottom: 1px solid #3a3a4a;
-    white-space: nowrap;
-  }}
-  .exp-tbl th.num, .exp-tbl td.num {{
-    text-align: right;
-  }}
-  .sector-tr {{
-    background: #1a1a2e;
-    cursor: pointer;
-    transition: background 0.15s;
-  }}
-  .sector-tr:hover {{
-    background: #252545 !important;
-  }}
-  .sector-tr.open {{
-    background: #1e2a45 !important;
-  }}
-  .sector-tr td {{
-    padding: 8px 14px;
-    border-bottom: 1px solid #2d2d3d;
-    color: #e2e8f0;
-  }}
-  .arrow {{
-    display: inline-block;
-    width: 16px;
-    font-size: 10px;
-    color: #63b3ed;
-    transition: transform 0.2s;
-    user-select: none;
-  }}
-  .arrow.open {{ transform: rotate(90deg); }}
-  .pais-tr {{
-    display: none;
-    background: #111827;
-  }}
-  .pais-tr.visible {{ display: table-row; }}
-  .pais-tr td {{
-    padding: 6px 14px 6px 38px;
-    color: #90cdf4;
-    font-size: 13px;
-    border-bottom: 1px solid #1f2937;
-  }}
-  .pais-tr td.num {{ color: #7dd3fc; }}
-</style>
-<div class="wrap-exp">
-  <table class="exp-tbl" id="expTbl">
-    <thead>
-      <tr>
-        <th style="width:24px"></th>
-        <th>Sector / Industria</th>
-        {"".join(f'<th class="num">{p}</th>' for p in todos_proveedores)}
-      </tr>
-    </thead>
-    <tbody id="expBody"></tbody>
-  </table>
-</div>
-<script>
-(function() {{
-  const proveedores = {proveedores_json};
-  const sectores   = {sectores_json};
-  const tbody = document.getElementById("expBody");
-
-  sectores.forEach(function(s, si) {{
-    var tr = document.createElement("tr");
-    tr.className = "sector-tr";
-    tr.dataset.idx = si;
-    var arrowId = "arr-" + si;
-    var tdArrow = "<td><span class='arrow' id='" + arrowId + "'>&#9658;</span></td>";
-    var tdSector = "<td>" + s.sector + "</td>";
-    var tdVals = s.vals.map(function(v) {{
-      return "<td class='num'>" + v + "</td>";
-    }}).join("");
-    tr.innerHTML = tdArrow + tdSector + tdVals;
-    tr.addEventListener("click", function() {{
-      var arrow = document.getElementById(arrowId);
-      var isOpen = tr.classList.contains("open");
-      document.querySelectorAll(".sector-tr.open").forEach(function(el) {{
-        el.classList.remove("open");
-      }});
-      document.querySelectorAll(".arrow.open").forEach(function(el) {{
-        el.classList.remove("open");
-      }});
-      document.querySelectorAll(".pais-tr.visible").forEach(function(el) {{
-        el.classList.remove("visible");
-      }});
-      if (!isOpen) {{
-        tr.classList.add("open");
-        arrow.classList.add("open");
-        document.querySelectorAll(".pais-tr[data-parent='" + si + "']").forEach(function(el) {{
-          el.classList.add("visible");
-        }});
-      }}
-    }});
-    tbody.appendChild(tr);
-
-    s.paises.forEach(function(p) {{
-      var trP = document.createElement("tr");
-      trP.className = "pais-tr";
-      trP.dataset.parent = si;
-      var tdPais = "<td></td><td>&#127758; " + p.pais + "</td>";
-      var tdPVals = p.vals.map(function(v) {{
-        return "<td class='num'>" + v + "</td>";
-      }}).join("");
-      trP.innerHTML = tdPais + tdPVals;
-      tbody.appendChild(trP);
-    }});
-  }});
-}})();
-</script>
-"""
-        components.html(tabla_html, height=540, scrolling=False)
-
-        boton_descarga(
-            "⬇️ Descargar sectores",
-            {"Experiencia por sector": pivot_sector},
-            "experiencia_sector.xlsx",
-            "dl_exp_sector"
-        )
-
-    else:
-        st.info("No se encontraron datos de experiencia del fabricante.")
-
-    st.markdown("#### Información de la solución - Localización Colombia/Perú *(se encuentra en el reporte final)*")
-    st.markdown("#### Información de la solución - Evolución, Sostenibilidad e innovación *(se encuentra en el reporte final)*")
-    st.markdown("#### Información de la solución - Ecosistema y capacidad de soporte de la solución *(se encuentra en el reporte final)*")
-
     # ---- CALIDAD DEL PROPONENTE ----
     st.subheader("Calidad del proponente")
-
-    st.markdown("#### Experiencia del oferente")
-
-    if data_experiencia_oferente:
-        df_exp_of_all = pd.concat(data_experiencia_oferente, ignore_index=True)
-        todos_proveedores_of = list(df_exp_of_all["Proveedor"].unique())
-
-        pivot_sector_of = (
-            df_exp_of_all[df_exp_of_all["Sector/Industria"] != ""]
-            .groupby(["Sector/Industria", "Proveedor"]).size()
-            .unstack(fill_value=0)
-            .reindex(columns=todos_proveedores_of, fill_value=0)
-            .reset_index()
-        )
-
-        import json as _json
-        sectores_data_of = []
-        for _, row_s in pivot_sector_of.iterrows():
-            sector = row_s["Sector/Industria"]
-            df_fil = df_exp_of_all[df_exp_of_all["Sector/Industria"] == sector]
-            pivot_p = (
-                df_fil[df_fil["País"] != ""]
-                .groupby(["País", "Proveedor"]).size()
-                .unstack(fill_value=0)
-                .reindex(columns=todos_proveedores_of, fill_value=0)
-                .reset_index()
-            )
-            paises = [
-                {"pais": row_p["País"], "vals": [int(row_p[p]) for p in todos_proveedores_of]}
-                for _, row_p in pivot_p.iterrows()
-            ]
-            sectores_data_of.append({
-                "sector": sector,
-                "vals": [int(row_s[p]) for p in todos_proveedores_of],
-                "paises": paises
-            })
-
-        proveedores_json_of = _json.dumps(todos_proveedores_of)
-        sectores_json_of    = _json.dumps(sectores_data_of)
-
-        tabla_of_html = f"""
-<style>
-  .wrap-exp-of {{
-    font-family: inherit;
-    border: 1px solid #3a3a4a;
-    border-radius: 6px;
-    overflow: hidden;
-    max-height: 520px;
-    overflow-y: auto;
-  }}
-  .exp-tbl-of {{
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 13.5px;
-  }}
-  .exp-tbl-of thead tr {{
-    background: #16213e;
-    position: sticky;
-    top: 0;
-    z-index: 2;
-  }}
-  .exp-tbl-of th {{
-    padding: 9px 14px;
-    text-align: left;
-    color: #a0aec0;
-    font-weight: 600;
-    border-bottom: 1px solid #3a3a4a;
-    white-space: nowrap;
-  }}
-  .exp-tbl-of th.num-of, .exp-tbl-of td.num-of {{ text-align: right; }}
-  .sector-tr-of {{
-    background: #1a1a2e;
-    cursor: pointer;
-    transition: background 0.15s;
-  }}
-  .sector-tr-of:hover {{ background: #252545 !important; }}
-  .sector-tr-of.open-of {{ background: #1e2a45 !important; }}
-  .sector-tr-of td {{
-    padding: 8px 14px;
-    border-bottom: 1px solid #2d2d3d;
-    color: #e2e8f0;
-  }}
-  .arrow-of {{
-    display: inline-block;
-    width: 16px;
-    font-size: 10px;
-    color: #63b3ed;
-    transition: transform 0.2s;
-    user-select: none;
-  }}
-  .arrow-of.open-of {{ transform: rotate(90deg); }}
-  .pais-tr-of {{ display: none; background: #111827; }}
-  .pais-tr-of.visible-of {{ display: table-row; }}
-  .pais-tr-of td {{
-    padding: 6px 14px 6px 38px;
-    color: #90cdf4;
-    font-size: 13px;
-    border-bottom: 1px solid #1f2937;
-  }}
-  .pais-tr-of td.num-of {{ color: #7dd3fc; }}
-</style>
-<div class="wrap-exp-of">
-  <table class="exp-tbl-of" id="expTblOf">
-    <thead>
-      <tr>
-        <th style="width:24px"></th>
-        <th>Sector / Industria</th>
-        {"".join(f'<th class="num-of">{p}</th>' for p in todos_proveedores_of)}
-      </tr>
-    </thead>
-    <tbody id="expBodyOf"></tbody>
-  </table>
-</div>
-<script>
-(function() {{
-  var proveedores = {proveedores_json_of};
-  var sectores   = {sectores_json_of};
-  var tbody = document.getElementById("expBodyOf");
-  sectores.forEach(function(s, si) {{
-    var tr = document.createElement("tr");
-    tr.className = "sector-tr-of";
-    tr.dataset.idx = si;
-    var arrowId = "arr-of-" + si;
-    tr.innerHTML = "<td><span class='arrow-of' id='" + arrowId + "'>&#9658;</span></td>"
-      + "<td>" + s.sector + "</td>"
-      + s.vals.map(function(v) {{ return "<td class='num-of'>" + v + "</td>"; }}).join("");
-    tr.addEventListener("click", function() {{
-      var arrow = document.getElementById(arrowId);
-      var isOpen = tr.classList.contains("open-of");
-      document.querySelectorAll(".sector-tr-of.open-of").forEach(function(el) {{ el.classList.remove("open-of"); }});
-      document.querySelectorAll(".arrow-of.open-of").forEach(function(el) {{ el.classList.remove("open-of"); }});
-      document.querySelectorAll(".pais-tr-of.visible-of").forEach(function(el) {{ el.classList.remove("visible-of"); }});
-      if (!isOpen) {{
-        tr.classList.add("open-of");
-        arrow.classList.add("open-of");
-        document.querySelectorAll(".pais-tr-of[data-parent='" + si + "']").forEach(function(el) {{ el.classList.add("visible-of"); }});
-      }}
-    }});
-    tbody.appendChild(tr);
-    s.paises.forEach(function(p) {{
-      var trP = document.createElement("tr");
-      trP.className = "pais-tr-of";
-      trP.dataset.parent = si;
-      trP.innerHTML = "<td></td><td>&#127758; " + p.pais + "</td>"
-        + p.vals.map(function(v) {{ return "<td class='num-of'>" + v + "</td>"; }}).join("");
-      tbody.appendChild(trP);
-    }});
-  }});
-}})();
-</script>
-"""
-        st.markdown("**Por Sector/Industria** — haz clic en una fila para desplegar los países")
-        components.html(tabla_of_html, height=540, scrolling=False)
-        boton_descarga(
-            "⬇️ Descargar sectores oferente",
-            {"Experiencia por sector": pivot_sector_of},
-            "experiencia_sector_oferente.xlsx",
-            "dl_exp_sector_of"
-        )
-    else:
-        st.info("No se encontraron datos de experiencia del oferente (hoja '5.').")
 
     # ---- ALCANCE DE SERVICIOS ----
     st.markdown("#### Alcance de servicios")
@@ -2068,13 +1727,18 @@ if st.session_state["archivos_cargados"]:
     else:
         st.info("No se encontraron datos de metodología (hoja '7.').")
 
-    st.markdown("#### Equipo Implementador *(se encuentra en el reporte final)*")
+    st.info(
+        "La información consolidada de experiencia del oferente y equipo implerementador "
+        "se encuentran en el reporte final."
+    )
 
     # ---- OTRAS ----
     st.subheader("OTRAS")
 
-    st.markdown("#### Capacidades Nube *(se encuentra en el reporte final)*")
-    st.markdown("#### Soporte y Manto *(se encuentra en el reporte final)*")
+    st.info(
+        "La información consolidada de capacidades de nube, soporte y manto "
+        "se encuentran en el reporte final."
+    )
 
     # ---- EXPORTAR EXCEL COMPLETO ----
     st.divider()
