@@ -891,6 +891,43 @@ def _pivot_ordenado(df_datos, col_valor, orden):
 
 
 # =========================
+# HELPER: pivotea tablas largas (Proveedor, ID, Requerimiento, Respuesta)
+# a formato ancho ID | Requerimiento | Proveedor1 | Proveedor2 | ... | ProveedorN
+# usado para Localizacion, Evolucion y Ecosistema
+# =========================
+def _pivotar_respuesta_ancho(df_concat, nombres_proveedores):
+    if df_concat is None or df_concat.empty:
+        return df_concat
+
+    orden_pares = list(dict.fromkeys(
+        zip(df_concat["ID"], df_concat["Requerimiento"])
+    ))
+
+    df_idx = df_concat.copy()
+    df_idx["_idx"] = list(zip(df_idx["ID"], df_idx["Requerimiento"]))
+
+    pivot = (
+        df_idx.pivot_table(
+            index="_idx",
+            columns="Proveedor",
+            values="Respuesta",
+            aggfunc="first"
+        )
+        .reindex(orden_pares)
+        .reset_index()
+    )
+    pivot.columns.name = None
+    pivot.insert(0, "ID", pivot["_idx"].apply(lambda t: t[0]))
+    pivot.insert(1, "Requerimiento", pivot["_idx"].apply(lambda t: t[1]))
+    pivot = pivot.drop(columns=["_idx"])
+
+    cols_provs = [p for p in nombres_proveedores if p in pivot.columns]
+    cols_provs += [c for c in pivot.columns if c not in ("ID", "Requerimiento") and c not in cols_provs]
+    pivot = pivot[["ID", "Requerimiento"] + cols_provs]
+    return pivot
+
+
+# =========================
 # HELPER: calcular tabla alcance de servicios
 # =========================
 def calcular_tabla_alcance(data_alcance_servicios, nombres_proveedores, pesos_k,
@@ -1895,16 +1932,19 @@ if st.session_state["archivos_cargados"]:
         # ── Información de la Solución — Localizacion ──────────────────────
         if data_info_solucion:
             df_info_sol_export = pd.concat(data_info_solucion, ignore_index=True)
+            df_info_sol_export = _pivotar_respuesta_ancho(df_info_sol_export, nombres_proveedores)
             _safe_to_excel(df_info_sol_export, writer, "Localizacion")
 
         # ── Información de la Solución — Evolución ──────────────────────────
         if data_evolucion:
             df_evol_export = pd.concat(data_evolucion, ignore_index=True)
+            df_evol_export = _pivotar_respuesta_ancho(df_evol_export, nombres_proveedores)
             _safe_to_excel(df_evol_export, writer, "Evolucion")
 
         # ── Información de la Solución — Ecosistema ────────────────────
         if data_red_partners:
             df_red_export = pd.concat(data_red_partners, ignore_index=True)
+            df_red_export = _pivotar_respuesta_ancho(df_red_export, nombres_proveedores)
             _safe_to_excel(df_red_export, writer, "Ecosistema")
 
         # ── Alcance de servicios ────────────────────────────────────────────
